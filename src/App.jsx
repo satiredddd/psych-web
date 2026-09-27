@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import "./index.css";
 import { parseQuestions } from "./parser";
-// Vite's "?raw" import loads the file as a plain string at build time.
-// This is the ONLY line that connects the app to your question bank.
-import questionsText from "./questions.txt?raw";
- 
+// Kept only as the source for the one-time "Import existing questions"
+// seed button below — the live app now reads from the shared function.
+import bundledQuestionsText from "./questions.txt?raw";
+
+const FUNCTION_URL = "/.netlify/functions/questions";
+
 function shuffledIndices(length) {
   const arr = Array.from({ length }, (_, i) => i);
   for (let i = arr.length - 1; i > 0; i--) {
@@ -13,21 +15,29 @@ function shuffledIndices(length) {
   }
   return arr;
 }
- 
+
+const emptyForm = {
+  set: "",
+  term: "",
+  a: "",
+  b: "",
+  c: "",
+  d: "",
+  correct: "A",
+  explainA: "",
+  explainB: "",
+  explainC: "",
+  explainD: "",
+};
+
 export default function App() {
-  // Parse the text file once. Editing questions.txt and rebuilding is all
-  // that's ever needed — nothing below this line has to change.
-  const parsedSets = useMemo(() => parseQuestions(questionsText), []);
- 
+  const [rawText, setRawText] = useState(null); // null = still loading
+  const [loadError, setLoadError] = useState(null);
+
   const [activeSet, setActiveSet] = useState(0);
-  // Answers are keyed by each question's ORIGINAL index (its position in
-  // parsedSets), not its on-screen position — so shuffling never
-  // mismatches an answer with the wrong question.
   const [answersBySet, setAnswersBySet] = useState({});
-  // Per-set display order. If a set has no entry here, it's shown in
-  // original file order.
   const [orderBySet, setOrderBySet] = useState({});
- 
+
   const [darkMode, setDarkMode] = useState(() => {
     try {
       return localStorage.getItem("quizDarkMode") === "true";
@@ -35,7 +45,12 @@ export default function App() {
       return false;
     }
   });
- 
+
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [form, setForm] = useState(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+
   useEffect(() => {
     try {
       localStorage.setItem("quizDarkMode", String(darkMode));
@@ -43,39 +58,137 @@ export default function App() {
       // ignore storage errors (e.g. private browsing)
     }
   }, [darkMode]);
- 
+
+  const loadQuestions = () => {
+    setLoadError(null);
+    fetch(FUNCTION_URL)
+      .then((res) => {
+        if (!res.ok) throw new Error(`Server returned ${res.status}`);
+        return res.text();
+      })
+      .then((text) => setRawText(text))
+      .catch((err) => setLoadError(err.message || "Failed to load questions"));
+  };
+
+  useEffect(() => {
+    loadQuestions();
+  }, []);
+
+  const parsedSets = useMemo(() => parseQuestions(rawText || ""), [rawText]);
+
   const currentSet = parsedSets[activeSet] || { label: "No questions yet", questions: [] };
   const QUESTIONS = currentSet.questions;
   const answers = answersBySet[activeSet] || {};
- 
   const order = orderBySet[activeSet] || QUESTIONS.map((_, i) => i);
- 
+
   const handleSelect = (originalIndex, letter) => {
-    if (answers[originalIndex]) return; // lock in the first answer
+    if (answers[originalIndex]) return;
     setAnswersBySet((prev) => ({
       ...prev,
       [activeSet]: { ...(prev[activeSet] || {}), [originalIndex]: letter },
     }));
   };
- 
+
   const handleShuffle = () => {
-    setOrderBySet((prev) => ({
-      ...prev,
-      [activeSet]: shuffledIndices(QUESTIONS.length),
-    }));
+    setOrderBySet((prev) => ({ ...prev, [activeSet]: shuffledIndices(QUESTIONS.length) }));
     setAnswersBySet((prev) => ({ ...prev, [activeSet]: {} }));
   };
- 
+
   const handleReset = () => {
     setAnswersBySet((prev) => ({ ...prev, [activeSet]: {} }));
   };
- 
+
+  const handleImportBundled = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(FUNCTION_URL, { method: "PUT", body: bundledQuestionsText });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const text = await res.text();
+      setRawText(text);
+    } catch (err) {
+      setSaveError(err.message || "Import failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openAddForm = () => {
+    setForm({ ...emptyForm, set: currentSet.label !== "No questions yet" ? currentSet.label : "" });
+    setSaveError(null);
+    setShowAddForm(true);
+  };
+
+  const updateField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
+
+  const handleAddQuestion = async (e) => {
+    e.preventDefault();
+    if (!form.set.trim() || !form.term.trim() || !form.a.trim() || !form.b.trim()) {
+      setSaveError("Set, term, and at least choices A and B are required.");
+      return;
+    }
+    const block = [
+      `TERM: ${form.term.trim()}`,
+      `A) ${form.a.trim()}`,
+      form.b.trim() && `B) ${form.b.trim()}`,
+      form.c.trim() && `C) ${form.c.trim()}`,
+      form.d.trim() && `D) ${form.d.trim()}`,
+      `ANSWER: ${form.correct}`,
+      form.explainA.trim() && `EXPLAIN A: ${form.explainA.trim()}`,
+      form.explainB.trim() && `EXPLAIN B: ${form.explainB.trim()}`,
+      form.explainC.trim() && `EXPLAIN C: ${form.explainC.trim()}`,
+      form.explainD.trim() && `EXPLAIN D: ${form.explainD.trim()}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(FUNCTION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ set: form.set.trim(), block }),
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const text = await res.text();
+      setRawText(text);
+      setShowAddForm(false);
+      setForm(emptyForm);
+    } catch (err) {
+      setSaveError(err.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const answeredCount = Object.keys(answers).length;
   const correctCount = Object.entries(answers).filter(
     ([originalIndex, letter]) => QUESTIONS[originalIndex]?.correct === letter
   ).length;
   const progressPct = QUESTIONS.length > 0 ? Math.round((answeredCount / QUESTIONS.length) * 100) : 0;
- 
+
+  if (rawText === null && !loadError) {
+    return (
+      <div className={"page" + (darkMode ? " dark" : "")}>
+        <div className="loadingState">Loading questions…</div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className={"page" + (darkMode ? " dark" : "")}>
+        <div className="loadingState">
+          <p>Couldn't load questions: {loadError}</p>
+          <button className="ctrlButton" onClick={loadQuestions}>
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={"page" + (darkMode ? " dark" : "")}>
       <header className="header">
@@ -91,7 +204,7 @@ export default function App() {
           </button>
         </div>
         <p className="subtitle">Goodluck minamahal kong napakaganda</p>
- 
+
         {parsedSets.length > 1 && (
           <div className="setSwitcher">
             {parsedSets.map((set, i) => (
@@ -105,18 +218,29 @@ export default function App() {
             ))}
           </div>
         )}
- 
-        {QUESTIONS.length > 0 && (
-          <div className="controlsRow">
-            <button className="ctrlButton" onClick={handleShuffle}>
-              🔀 Shuffle
-            </button>
-            <button className="ctrlButton" onClick={handleReset} disabled={answeredCount === 0}>
-              ↺ Reset
-            </button>
-          </div>
+
+        <div className="controlsRow">
+          {QUESTIONS.length > 0 && (
+            <>
+              <button className="ctrlButton" onClick={handleShuffle}>
+                🔀 Shuffle
+              </button>
+              <button className="ctrlButton" onClick={handleReset} disabled={answeredCount === 0}>
+                ↺ Reset
+              </button>
+            </>
+          )}
+          <button className="ctrlButton" onClick={openAddForm}>
+            ＋ Add question
+          </button>
+        </div>
+
+        {parsedSets.length === 0 && (
+          <button className="ctrlButton" onClick={handleImportBundled} disabled={saving}>
+            {saving ? "Importing…" : "Import existing questions.txt"}
+          </button>
         )}
- 
+
         {QUESTIONS.length > 0 && (
           <div className="progressWrap">
             <div className="progressTrack">
@@ -127,19 +251,74 @@ export default function App() {
             </div>
           </div>
         )}
- 
+
         {QUESTIONS.length > 0 && answeredCount > 0 && (
           <div className="scoreBar">
             Score: <strong>{correctCount}</strong> / {answeredCount} answered
           </div>
         )}
       </header>
- 
+
+      {showAddForm && (
+        <div className="modalOverlay" onClick={() => !saving && setShowAddForm(false)}>
+          <form className="modalCard" onClick={(e) => e.stopPropagation()} onSubmit={handleAddQuestion}>
+            <h2>Add a question</h2>
+
+            <label>
+              Set
+              <input value={form.set} onChange={(e) => updateField("set", e.target.value)} placeholder="e.g. Questions 1-80" />
+            </label>
+            <label>
+              Term / question
+              <textarea value={form.term} onChange={(e) => updateField("term", e.target.value)} rows={2} />
+            </label>
+
+            {["a", "b", "c", "d"].map((letter) => (
+              <label key={letter}>
+                Choice {letter.toUpperCase()}
+                <input value={form[letter]} onChange={(e) => updateField(letter, e.target.value)} />
+              </label>
+            ))}
+
+            <label>
+              Correct answer
+              <select value={form.correct} onChange={(e) => updateField("correct", e.target.value)}>
+                <option value="A">A</option>
+                <option value="B">B</option>
+                <option value="C">C</option>
+                <option value="D">D</option>
+              </select>
+            </label>
+
+            {["A", "B", "C", "D"].map((letter) => (
+              <label key={letter}>
+                Explanation {letter} (optional)
+                <input
+                  value={form[`explain${letter}`]}
+                  onChange={(e) => updateField(`explain${letter}`, e.target.value)}
+                />
+              </label>
+            ))}
+
+            {saveError && <p className="formError">{saveError}</p>}
+
+            <div className="modalActions">
+              <button type="button" className="ctrlButton" onClick={() => setShowAddForm(false)} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving}>
+                {saving ? "Saving…" : "Save question"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       <main>
         {QUESTIONS.length === 0 ? (
           <div className="emptySet">
             <h2>No questions here yet</h2>
-            <p>Add some to questions.txt using the TERM / A-D / ANSWER / EXPLAIN pattern.</p>
+            <p>Use "＋ Add question" above, or import your existing questions.txt.</p>
           </div>
         ) : (
           order.map((originalIndex, displayIndex) => {
@@ -147,7 +326,7 @@ export default function App() {
             const selected = answers[originalIndex];
             const isAnswered = Boolean(selected);
             const isCorrect = selected === q.correct;
- 
+
             return (
               <section
                 className={"card" + (isAnswered ? (isCorrect ? " correctCard" : " wrongCard") : "")}
@@ -155,20 +334,20 @@ export default function App() {
               >
                 <div className="qNumber">Question {displayIndex + 1}</div>
                 <p className="term">{q.term}</p>
- 
+
                 <div className="choices">
                   {["A", "B", "C", "D"].map((letter) => {
                     if (!q.choices[letter]) return null;
                     const isThisCorrect = letter === q.correct;
                     const isThisSelected = letter === selected;
- 
+
                     let choiceClass = "choice";
                     if (isAnswered) {
                       if (isThisCorrect) choiceClass += " choiceCorrect";
                       else if (isThisSelected) choiceClass += " choiceWrong";
                       else choiceClass += " choiceDim";
                     }
- 
+
                     return (
                       <button
                         key={letter}
@@ -182,7 +361,7 @@ export default function App() {
                     );
                   })}
                 </div>
- 
+
                 {isAnswered && (
                   <div className="feedback">
                     {isCorrect ? (
@@ -209,7 +388,7 @@ export default function App() {
           })
         )}
       </main>
- 
+
       <footer className="footer">
         {QUESTIONS.length > 0 && (
           <p>
@@ -222,4 +401,3 @@ export default function App() {
     </div>
   );
 }
- 
