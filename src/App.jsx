@@ -47,9 +47,18 @@ export default function App() {
   });
 
   const [showAddForm, setShowAddForm] = useState(false);
+  const [addMode, setAddMode] = useState("single"); // "single" | "bulk"
   const [form, setForm] = useState(emptyForm);
+  const [bulkSet, setBulkSet] = useState("");
+  const [bulkText, setBulkText] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+
+  const detectedCount = useMemo(
+    () => (bulkText.match(/^TERM:/gim) || []).length,
+    [bulkText]
+  );
+  const bulkHasSetLines = /^SET:/im.test(bulkText);
 
   useEffect(() => {
     try {
@@ -114,12 +123,40 @@ export default function App() {
   };
 
   const openAddForm = () => {
-    setForm({ ...emptyForm, set: currentSet.label !== "No questions yet" ? currentSet.label : "" });
+    const label = currentSet.label !== "No questions yet" ? currentSet.label : "";
+    setForm({ ...emptyForm, set: label });
+    setBulkSet(label);
+    setBulkText("");
+    setAddMode("single");
     setSaveError(null);
     setShowAddForm(true);
   };
 
   const updateField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
+
+  // Shared by both the single-question form and the bulk-paste form: sends
+  // one or more already-formatted TERM/.../ANSWER/EXPLAIN blocks (separated
+  // by "---" if there's more than one) to the target set.
+  const saveBlock = async (set, block) => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(FUNCTION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ set, block }),
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const text = await res.text();
+      setRawText(text);
+      return true;
+    } catch (err) {
+      setSaveError(err.message || "Save failed");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleAddQuestion = async (e) => {
     e.preventDefault();
@@ -142,23 +179,31 @@ export default function App() {
       .filter(Boolean)
       .join("\n");
 
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const res = await fetch(FUNCTION_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ set: form.set.trim(), block }),
-      });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      const text = await res.text();
-      setRawText(text);
+    const ok = await saveBlock(form.set.trim(), block);
+    if (ok) {
       setShowAddForm(false);
       setForm(emptyForm);
-    } catch (err) {
-      setSaveError(err.message || "Save failed");
-    } finally {
-      setSaving(false);
+    }
+  };
+
+  const handleBulkAdd = async (e) => {
+    e.preventDefault();
+    if (!bulkSet.trim()) {
+      setSaveError("Pick a set to add these questions to.");
+      return;
+    }
+    if (bulkHasSetLines) {
+      setSaveError("Remove any \"SET:\" lines from the pasted text — pick the set above instead.");
+      return;
+    }
+    if (detectedCount === 0) {
+      setSaveError("No questions detected. Check that each one has a TERM: line.");
+      return;
+    }
+    const ok = await saveBlock(bulkSet.trim(), bulkText);
+    if (ok) {
+      setShowAddForm(false);
+      setBulkText("");
     }
   };
 
@@ -261,56 +306,118 @@ export default function App() {
 
       {showAddForm && (
         <div className="modalOverlay" onClick={() => !saving && setShowAddForm(false)}>
-          <form className="modalCard" onClick={(e) => e.stopPropagation()} onSubmit={handleAddQuestion}>
-            <h2>Add a question</h2>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h2>Add question{addMode === "bulk" ? "s" : ""}</h2>
 
-            <label>
-              Set
-              <input value={form.set} onChange={(e) => updateField("set", e.target.value)} placeholder="e.g. Questions 1-80" />
-            </label>
-            <label>
-              Term / question
-              <textarea value={form.term} onChange={(e) => updateField("term", e.target.value)} rows={2} />
-            </label>
-
-            {["a", "b", "c", "d"].map((letter) => (
-              <label key={letter}>
-                Choice {letter.toUpperCase()}
-                <input value={form[letter]} onChange={(e) => updateField(letter, e.target.value)} />
-              </label>
-            ))}
-
-            <label>
-              Correct answer
-              <select value={form.correct} onChange={(e) => updateField("correct", e.target.value)}>
-                <option value="A">A</option>
-                <option value="B">B</option>
-                <option value="C">C</option>
-                <option value="D">D</option>
-              </select>
-            </label>
-
-            {["A", "B", "C", "D"].map((letter) => (
-              <label key={letter}>
-                Explanation {letter} (optional)
-                <input
-                  value={form[`explain${letter}`]}
-                  onChange={(e) => updateField(`explain${letter}`, e.target.value)}
-                />
-              </label>
-            ))}
-
-            {saveError && <p className="formError">{saveError}</p>}
-
-            <div className="modalActions">
-              <button type="button" className="ctrlButton" onClick={() => setShowAddForm(false)} disabled={saving}>
-                Cancel
+            <div className="modeTabs">
+              <button
+                type="button"
+                className={"modeTab" + (addMode === "single" ? " modeTabActive" : "")}
+                onClick={() => setAddMode("single")}
+              >
+                Single question
               </button>
-              <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving}>
-                {saving ? "Saving…" : "Save question"}
+              <button
+                type="button"
+                className={"modeTab" + (addMode === "bulk" ? " modeTabActive" : "")}
+                onClick={() => setAddMode("bulk")}
+              >
+                Paste multiple
               </button>
             </div>
-          </form>
+
+            {addMode === "single" ? (
+              <form onSubmit={handleAddQuestion} className="modalForm">
+                <label>
+                  Set
+                  <input value={form.set} onChange={(e) => updateField("set", e.target.value)} placeholder="e.g. Questions 1-80" />
+                </label>
+                <label>
+                  Term / question
+                  <textarea value={form.term} onChange={(e) => updateField("term", e.target.value)} rows={2} />
+                </label>
+
+                {["a", "b", "c", "d"].map((letter) => (
+                  <label key={letter}>
+                    Choice {letter.toUpperCase()}
+                    <input value={form[letter]} onChange={(e) => updateField(letter, e.target.value)} />
+                  </label>
+                ))}
+
+                <label>
+                  Correct answer
+                  <select value={form.correct} onChange={(e) => updateField("correct", e.target.value)}>
+                    <option value="A">A</option>
+                    <option value="B">B</option>
+                    <option value="C">C</option>
+                    <option value="D">D</option>
+                  </select>
+                </label>
+
+                {["A", "B", "C", "D"].map((letter) => (
+                  <label key={letter}>
+                    Explanation {letter} (optional)
+                    <input
+                      value={form[`explain${letter}`]}
+                      onChange={(e) => updateField(`explain${letter}`, e.target.value)}
+                    />
+                  </label>
+                ))}
+
+                {saveError && <p className="formError">{saveError}</p>}
+
+                <div className="modalActions">
+                  <button type="button" className="ctrlButton" onClick={() => setShowAddForm(false)} disabled={saving}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving}>
+                    {saving ? "Saving…" : "Save question"}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <form onSubmit={handleBulkAdd} className="modalForm">
+                <label>
+                  Set (all pasted questions go here)
+                  <input value={bulkSet} onChange={(e) => setBulkSet(e.target.value)} placeholder="e.g. Questions 1-80" />
+                </label>
+                <label>
+                  Paste your questions
+                  <textarea
+                    value={bulkText}
+                    onChange={(e) => setBulkText(e.target.value)}
+                    rows={12}
+                    placeholder={
+                      "TERM: What does X mean?\nA) Choice one\nB) Choice two\nC) Choice three\nD) Choice four\nANSWER: B\nEXPLAIN A: ...\nEXPLAIN B: ...\nEXPLAIN C: ...\nEXPLAIN D: ...\n---\nTERM: Next question...\n..."
+                    }
+                  />
+                </label>
+                <p className="bulkHint">
+                  Same format as questions.txt, separated by <code>---</code>. Don't include{" "}
+                  <code>SET:</code> lines here — pick the set above instead.
+                </p>
+
+                {bulkText.trim() !== "" && (
+                  <p className={"detectedCount" + (detectedCount === 0 ? " detectedCountZero" : "")}>
+                    {detectedCount === 0
+                      ? "No questions detected yet"
+                      : `Detected ${detectedCount} question${detectedCount === 1 ? "" : "s"}`}
+                  </p>
+                )}
+
+                {saveError && <p className="formError">{saveError}</p>}
+
+                <div className="modalActions">
+                  <button type="button" className="ctrlButton" onClick={() => setShowAddForm(false)} disabled={saving}>
+                    Cancel
+                  </button>
+                  <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving || detectedCount === 0}>
+                    {saving ? "Saving…" : `Save ${detectedCount || ""} question${detectedCount === 1 ? "" : "s"}`}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
       )}
 

@@ -470,3 +470,68 @@ body {
   font-size: 0.85rem;
   margin: 0;
 }
+
+.modeTabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.modeTab {
+  flex: 1;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1.5px solid var(--choice-border);
+  background: var(--choice-bg);
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.modeTabActive {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modalForm textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.bulkHint {
+  margin: -4px 0 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.bulkHint code {
+  background: var(--choice-bg);
+  border: 1px solid var(--choice-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.76rem;
+}
+
+.detectedCount {
+  margin: -4px 0 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--correct-text);
+}
+
+.detectedCountZero {
+  color: var(--muted);
+}
