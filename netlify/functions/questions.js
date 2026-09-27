@@ -48,6 +48,35 @@ function insertQuestion(fullText, setLabel, blockText) {
   return before + "\n" + newBlock + (after ? "\n" + after : "\n");
 }
 
+// Removes an entire SET section (its header line and every question inside
+// it) from the stored text.
+function removeSet(fullText, setLabel) {
+  const lines = fullText.split(/\r?\n/);
+  const targetLabel = setLabel.trim().toLowerCase();
+
+  let setStart = -1;
+  let nextSetStart = -1;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.toUpperCase().startsWith("SET:")) {
+      const label = line.slice(4).trim().toLowerCase();
+      if (setStart === -1 && label === targetLabel) {
+        setStart = i;
+      } else if (setStart !== -1 && nextSetStart === -1) {
+        nextSetStart = i;
+        break;
+      }
+    }
+  }
+
+  if (setStart === -1) return fullText; // set not found — no-op
+
+  const endIdx = nextSetStart === -1 ? lines.length : nextSetStart;
+  const remaining = [...lines.slice(0, setStart), ...lines.slice(endIdx)].join("\n");
+  return remaining.replace(/\n{3,}/g, "\n\n").trim() + "\n";
+}
+
 export default async (req) => {
   const store = getStore("quiz-questions");
 
@@ -89,6 +118,28 @@ export default async (req) => {
     const text = await req.text();
     await store.set(KEY, text);
     return new Response(text, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+
+  if (req.method === "DELETE") {
+    if (!isAuthorized(req)) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    let body;
+    try {
+      body = await req.json();
+    } catch {
+      return new Response("Invalid JSON body", { status: 400 });
+    }
+    const { set } = body || {};
+    if (!set) {
+      return new Response("Missing 'set'", { status: 400 });
+    }
+    const existing = (await store.get(KEY)) || "";
+    const updated = removeSet(existing, set);
+    await store.set(KEY, updated);
+    return new Response(updated, {
       headers: { "Content-Type": "text/plain; charset=utf-8" },
     });
   }

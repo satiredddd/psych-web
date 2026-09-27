@@ -47,6 +47,9 @@ export default function App() {
   });
 
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDeleteLabel, setConfirmDeleteLabel] = useState(null);
   const [addMode, setAddMode] = useState("single"); // "single" | "bulk"
   const [form, setForm] = useState(emptyForm);
   const [bulkSet, setBulkSet] = useState("");
@@ -207,6 +210,28 @@ export default function App() {
     }
   };
 
+  const handleDeleteSet = async (label) => {
+    setDeleting(true);
+    try {
+      const res = await fetch(FUNCTION_URL, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ set: label }),
+      });
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const text = await res.text();
+      setRawText(text);
+      setAnswersBySet({});
+      setOrderBySet({});
+      setActiveSet(0);
+      setConfirmDeleteLabel(null);
+    } catch (err) {
+      alert(err.message || "Delete failed");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const answeredCount = Object.keys(answers).length;
   const correctCount = Object.entries(answers).filter(
     ([originalIndex, letter]) => QUESTIONS[originalIndex]?.correct === letter
@@ -238,6 +263,14 @@ export default function App() {
     <div className={"page" + (darkMode ? " dark" : "")}>
       <header className="header">
         <div className="topRow">
+          <button
+            className="iconToggle"
+            onClick={() => setShowSidebar(true)}
+            aria-label="Open sets menu"
+            title="Sets"
+          >
+            ☰
+          </button>
           <h1>Quiz for my wifies 📖</h1>
           <button
             className="iconToggle"
@@ -250,18 +283,10 @@ export default function App() {
         </div>
         <p className="subtitle">Goodluck minamahal kong napakaganda</p>
 
-        {parsedSets.length > 1 && (
-          <div className="setSwitcher">
-            {parsedSets.map((set, i) => (
-              <button
-                key={i}
-                className={"setButton" + (activeSet === i ? " setButtonActive" : "")}
-                onClick={() => setActiveSet(i)}
-              >
-                {set.label}
-              </button>
-            ))}
-          </div>
+        {currentSet.label !== "No questions yet" && (
+          <button className="currentSetPill" onClick={() => setShowSidebar(true)}>
+            {currentSet.label} <span className="currentSetPillArrow">▾</span>
+          </button>
         )}
 
         <div className="controlsRow">
@@ -303,6 +328,82 @@ export default function App() {
           </div>
         )}
       </header>
+
+      {showSidebar && (
+        <div className="sidebarOverlay" onClick={() => setShowSidebar(false)}>
+          <aside className="sidebarPanel" onClick={(e) => e.stopPropagation()}>
+            <div className="sidebarHeader">
+              <h2>Sets</h2>
+              <button className="iconToggle" onClick={() => setShowSidebar(false)} aria-label="Close">
+                ✕
+              </button>
+            </div>
+
+            <div className="sidebarList">
+              {parsedSets.length === 0 && <p className="sidebarEmpty">No sets yet.</p>}
+              {parsedSets.map((set, i) => (
+                <div key={i} className={"sidebarItem" + (activeSet === i ? " sidebarItemActive" : "")}>
+                  <button
+                    className="sidebarItemMain"
+                    onClick={() => {
+                      setActiveSet(i);
+                      setShowSidebar(false);
+                    }}
+                  >
+                    <span className="sidebarItemLabel">{set.label}</span>
+                    <span className="sidebarItemCount">
+                      {set.questions.length} question{set.questions.length === 1 ? "" : "s"}
+                    </span>
+                  </button>
+                  <button
+                    className="sidebarDeleteBtn"
+                    onClick={() => setConfirmDeleteLabel(set.label)}
+                    disabled={deleting}
+                    aria-label={`Delete ${set.label}`}
+                    title="Delete this set"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <button
+              className="ctrlButton sidebarAddBtn"
+              onClick={() => {
+                setShowSidebar(false);
+                openAddForm();
+              }}
+            >
+              ＋ Add question
+            </button>
+          </aside>
+        </div>
+      )}
+
+      {confirmDeleteLabel && (
+        <div className="modalOverlay" onClick={() => !deleting && setConfirmDeleteLabel(null)}>
+          <div className="modalCard confirmCard" onClick={(e) => e.stopPropagation()}>
+            <h2>Delete this set?</h2>
+            <p>
+              This permanently deletes <strong>"{confirmDeleteLabel}"</strong> and every question in it, for
+              both of you. This can't be undone.
+            </p>
+            <div className="modalActions">
+              <button className="ctrlButton" onClick={() => setConfirmDeleteLabel(null)} disabled={deleting}>
+                Cancel
+              </button>
+              <button
+                className="ctrlButton ctrlButtonDanger"
+                onClick={() => handleDeleteSet(confirmDeleteLabel)}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting…" : "Delete set"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showAddForm && (
         <div className="modalOverlay" onClick={() => !saving && setShowAddForm(false)}>
