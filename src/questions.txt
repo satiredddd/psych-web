@@ -1,0 +1,161 @@
+SET: Questions 1-80
+
+TERM: Judy becomes lightheaded whenever she encounters blood or injury. Eventually, she begins fainting 5 to 10 times a week, including in class, and this disrupts her schooling. Which condition described in the chapter best fits Judy's situation?
+A) Phobia
+B) Prevalence
+C) Psychopathology
+D) Neurosis
+ANSWER: A
+EXPLAIN A: Correct — a phobia is a marked, persistent, excessive fear of a specific object or situation that disrupts daily functioning, exactly like Judy's fainting spells.
+EXPLAIN B: Prevalence means the percentage of a population that has a disorder at a given time — it's a statistic, not a condition someone "has".
+EXPLAIN C: Psychopathology is the broad scientific study of abnormal behavior in general, not a specific condition Judy could be diagnosed with.
+EXPLAIN D: Neurosis is an older, now largely outdated term for anxiety-related distress — it isn't the specific term the chapter uses for this scenario.
+---
+
+TERM: Judy avoids magazines with graphic pictures, raw meat, and even Band-Aids because they remind her of blood. Which feature of a phobia is most clearly shown?
+A) Marked and persistent fear of an object or situation
+B) Increased risk of death
+C) Normal social interaction
+D) Positive reinforcement
+ANSWER: A
+EXPLAIN A: Correct — her avoidance of anything blood-related shows the defining feature of a phobia: an intense, ongoing fear that shapes her behavior.
+EXPLAIN B: Increased risk of death isn't a feature of a phobia itself — it's not what her avoidance behavior demonstrates.
+EXPLAIN C: Normal social interaction is the opposite of what's happening — her fear is disrupting her life, not leaving it unaffected.
+EXPLAIN D: Positive reinforcement is a learning concept (behavior increasing because of a reward) — unrelated to what's being shown here.
+---
+
+TERM: A person feels severe fear on every date even though there is nothing dangerous about the person they are meeting. Which concept from the chapter describes the problem with the person's functioning?
+A) Dysfunction
+B) Prevalence
+C) Prognosis
+D) Incidence
+ANSWER: A
+EXPLAIN A: Correct — dysfunction refers to a breakdown in normal cognitive, emotional, or behavioral functioning, which is exactly what's happening when fear appears without real danger.
+EXPLAIN B: Prevalence is a statistic about how common a disorder is in a population, not a description of one person's impaired functioning.
+EXPLAIN C: Prognosis refers to the predicted future course of a disorder — it's about outlook, not the current problem.
+EXPLAIN D: Incidence refers to the rate of new cases of a disorder appearing over time — a population-level measure, not a personal experience.
+---
+
+TERM: A person feels afraid of going on a date because everyone agrees that the person who asked them out is unpredictable and dangerous. According to the chapter, why would this reaction not necessarily represent dysfunction?
+A) The fear is culturally expected
+B) The fear has a realistic basis
+C) The fear is caused by the id
+D) The fear has been extinguished
+ANSWER: B
+EXPLAIN A: This isn't about cultural expectations — it's about whether the danger is actually real, which is a separate idea.
+EXPLAIN B: Correct — when a fear is a reasonable response to a genuinely dangerous situation, it isn't considered dysfunctional; it reflects reality rather than a disorder.
+EXPLAIN C: The id is a Freudian concept about unconscious drives — it has nothing to do with whether a fear is realistic.
+EXPLAIN D: "Extinguished" is a conditioning term meaning a learned response has faded away — it doesn't apply to a currently-felt, justified fear.
+---
+
+TERM: A person becomes so shy that they cannot interact with others even though they want friends. Which criterion is most clearly illustrated?
+A) Impairment in functioning
+B) Prevalence
+C) Incidence
+D) Etiology
+ANSWER: A
+EXPLAIN A: Correct — being unable to interact with others despite wanting to shows a real impairment in social functioning, one of the key markers of abnormal behavior.
+EXPLAIN B: Prevalence describes how widespread a disorder is across a population, not one person's personal struggle.
+EXPLAIN C: Incidence measures new cases appearing over a period of time — it's a population statistic, not a personal symptom.
+EXPLAIN D: Etiology refers to the cause or origin of a disorder — this scenario shows the effect (impairment), not its cause.
+---
+
+TERM: Someone becomes extremely upset after a close family member dies but continues functioning normally. Which point from the chapter does this situation illustrate?
+A) Distress alone does not define abnormal behavior
+B) Distress always indicates a psychological disorder
+C) Impairment is never important
+D) Atypical behavior automatically indicates a disorder
+ANSWER: A
+EXPLAIN A: Correct — since the person is still functioning normally despite real emotional pain, this shows that distress by itself doesn't equal a disorder.
+EXPLAIN B: This is the opposite of the point being made — the chapter argues distress alone is NOT enough to indicate a disorder.
+EXPLAIN C: Impairment does matter in the broader definition of abnormality — this option overstates and misrepresents the point.
+EXPLAIN D: This scenario isn't even about atypical behavior — grief after a death is common, not unusual, and the person still isn't impaired.
+---
+
+TERM: A person acts in an unusual way that is far from what most people normally do, but the behavior is productive and the person enjoys their career. Which example from the chapter shows why unusual behavior alone is not enough?
+A) Judy fainting at blood
+B) Lady Gaga performing with blood spurt from her clothes
+C) Anna O. experiencing blurred vision
+D) Peter fearing rabbits
+ANSWER: B
+EXPLAIN A: Judy's fainting illustrates a genuine phobia causing impairment — not an example of harmless unusual behavior.
+EXPLAIN B: Correct — Lady Gaga's shocking, unusual performance choices are productive and enjoyed by her, showing that being statistically "unusual" doesn't by itself mean something is a disorder.
+EXPLAIN C: Anna O. is a classic historical case of psychological symptoms linked to unresolved distress, not an example of harmless unusual behavior.
+EXPLAIN D: Peter fearing rabbits is a classic conditioning example about how fears can be learned, not about unusual-but-fine behavior.
+---
+
+TERM: J. D. Salinger lives in a small town, refuses to see outsiders for years, and continues writing successfully. Which idea does this example illustrate?
+A) Deviation from the average does not automatically mean disorder
+B) Every unusual behavior is dysfunctional
+C) Psychological dysfunction is always unconscious
+D) Atypical behavior always requires treatment
+ANSWER: A
+EXPLAIN A: Correct — Salinger's reclusive, statistically rare lifestyle didn't stop him from functioning and succeeding, showing that being different from average isn't the same as having a disorder.
+EXPLAIN B: This is the opposite conclusion — his example specifically shows that unusual behavior is NOT automatically dysfunctional.
+EXPLAIN C: This option brings in an unrelated Freudian idea about the unconscious that the example doesn't actually address.
+EXPLAIN D: Since he continued to function and succeed, this example argues against the idea that all atypical behavior needs treatment.
+---
+
+TERM: A person enters a trance and believes they are possessed. In one culture this is considered a psychological disorder, while in another society it is accepted and expected. Which criterion is especially important in this situation?
+A) Cultural context
+B) Incidence
+C) Prognosis
+D) Extinction
+ANSWER: A
+EXPLAIN A: Correct — the same behavior is judged differently depending on the society's norms, which shows why cultural context matters when defining abnormality.
+EXPLAIN B: Incidence refers to the rate of new cases in a population — it doesn't explain why the same behavior is judged differently across cultures.
+EXPLAIN C: Prognosis is about the predicted outcome of a condition, which isn't the focus of this comparison.
+EXPLAIN D: Extinction is a conditioning term about a learned response fading — unrelated to cultural interpretation of behavior.
+---
+
+TERM: A clinician evaluates a person's behavior by considering dysfunction, distress or impairment, and whether the response is atypical or culturally unexpected. What concept is the clinician trying to determine?
+A) Psychological disorder
+B) Shaping
+C) Collective unconscious
+D) Bloodletting
+ANSWER: A
+EXPLAIN A: Correct — weighing dysfunction, distress/impairment, and atypicality together is exactly how the chapter defines a psychological disorder.
+EXPLAIN B: Shaping is a behaviorist learning technique of reinforcing successive approximations — unrelated to diagnostic criteria.
+EXPLAIN C: Collective unconscious is a Jungian concept about shared inherited memories — not part of this diagnostic framework.
+EXPLAIN D: Bloodletting is a historical medical treatment, not a diagnostic concept.
+---
+
+SET: Questions 81-130
+
+TERM: A patient with severe psychotic symptoms receives a drug that diminishes hallucinations and delusions and controls agitation. Which class of drugs is described?
+A) Neuroleptics
+B) Benzodiazepines
+C) Bromides
+D) Opium
+ANSWER: A
+EXPLAIN A: Correct — neuroleptics are the class historically described as diminishing hallucinations and delusions and controlling agitation.
+EXPLAIN B: Benzodiazepines are minor tranquilizers mainly used to reduce anxiety, not to control hallucinations and delusions.
+EXPLAIN C: Bromides are an older class of sedating drugs largely abandoned due to side effects — not the class linked to controlling psychotic symptoms.
+EXPLAIN D: Opium is an older sedative substance, not the modern class associated with treating hallucinations and delusions.
+---
+
+TERM: A patient with anxiety receives a drug that seems to reduce anxiety. Which class described in the chapter fits?
+A) Benzodiazepines
+B) Neuroleptics
+C) Bromides
+D) Humors
+ANSWER: A
+EXPLAIN A: Correct — benzodiazepines are the class described in the chapter as reducing anxiety.
+EXPLAIN B: Neuroleptics target hallucinations, delusions, and agitation in psychotic disorders, not primarily anxiety.
+EXPLAIN C: Bromides are an older, largely abandoned sedative class, not the modern anxiety-reducing drug class described.
+EXPLAIN D: Humors are the ancient bodily-fluid theory, unrelated to modern anxiety medication.
+---
+
+SET: Add your own questions below this line
+
+TERM: Example — replace this with a real question. What should you do to add more questions to this file?
+A) Follow the same TERM / A-D / ANSWER / EXPLAIN pattern and separate with ---
+B) Rewrite the whole App.jsx file
+C) Learn JavaScript object syntax
+D) Nothing, the app is finished
+ANSWER: A
+EXPLAIN A: Correct — just keep repeating this exact plain-text pattern, however many questions you want, and separate each one with a line containing only ---.
+EXPLAIN B: You never need to touch App.jsx again for adding questions — that's the whole point of the parser.
+EXPLAIN C: No JS syntax is needed at all now — this is plain text.
+EXPLAIN D: There's always room to keep adding more — just paste more blocks in the same pattern.
+---
