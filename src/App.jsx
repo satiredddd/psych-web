@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import "./index.css";
 import { parseQuestions } from "./parser";
-// Kept only as the source for the one-time "Import existing questions"
-// seed button below — the live app now reads from the shared function.
-import bundledQuestionsText from "./questions.txt?raw";
 
-const FUNCTION_URL = "/.netlify/functions/questions";
+const FUNCTION_URL = "/.netlify/functions/library";
+const PERIODS = ["Prelim", "Midterm", "Finals"];
 
 function shuffledIndices(length) {
   const arr = Array.from({ length }, (_, i) => i);
@@ -16,8 +14,13 @@ function shuffledIndices(length) {
   return arr;
 }
 
+// A questionnaire's stored text has no SET: lines, so parseQuestions always
+// hands back a single set — this just unwraps its question list.
+function questionsIn(text) {
+  return parseQuestions(text || "")[0]?.questions || [];
+}
+
 const emptyForm = {
-  set: "",
   term: "",
   a: "",
   b: "",
@@ -30,13 +33,31 @@ const emptyForm = {
   explainD: "",
 };
 
+async function postAction(body) {
+  const res = await fetch(FUNCTION_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Server returned ${res.status}`);
+  return res.json();
+}
+
 export default function App() {
-  const [rawText, setRawText] = useState(null); // null = still loading
+  const [library, setLibrary] = useState(null); // null = loading
   const [loadError, setLoadError] = useState(null);
 
-  const [activeSet, setActiveSet] = useState(0);
-  const [answersBySet, setAnswersBySet] = useState({});
-  const [orderBySet, setOrderBySet] = useState({});
+  // Sidebar browsing location (independent from which questionnaire is open
+  // for quiz-taking, so reopening the sidebar returns to the same folder).
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [navSubjectId, setNavSubjectId] = useState(null);
+  const [navPeriod, setNavPeriod] = useState(null);
+
+  // The questionnaire currently shown in the main quiz view.
+  const [openRef, setOpenRef] = useState(null); // { subjectId, periodName, questionnaireId }
+
+  const [answersByQ, setAnswersByQ] = useState({});
+  const [orderByQ, setOrderByQ] = useState({});
 
   const [darkMode, setDarkMode] = useState(() => {
     try {
@@ -46,21 +67,25 @@ export default function App() {
     }
   });
 
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [confirmDeleteLabel, setConfirmDeleteLabel] = useState(null);
-  const [addMode, setAddMode] = useState("single"); // "single" | "bulk"
+  const [showNewSubject, setShowNewSubject] = useState(false);
+  const [newSubjectName, setNewSubjectName] = useState("");
+
+  // Unified "add questions" modal, used both to create a new questionnaire
+  // file (modalTarget.type === "new") and to append more questions to the
+  // currently open one (modalTarget.type === "append").
+  const [modalTarget, setModalTarget] = useState(null);
+  const [qFormName, setQFormName] = useState("");
+  const [addMode, setAddMode] = useState("single");
   const [form, setForm] = useState(emptyForm);
-  const [bulkSet, setBulkSet] = useState("");
   const [bulkText, setBulkText] = useState("");
+
+  const [confirmDeleteSubject, setConfirmDeleteSubject] = useState(null);
+  const [confirmDeleteQuestionnaire, setConfirmDeleteQuestionnaire] = useState(null);
+
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
 
-  const detectedCount = useMemo(
-    () => (bulkText.match(/^TERM:/gim) || []).length,
-    [bulkText]
-  );
+  const detectedCount = useMemo(() => (bulkText.match(/^TERM:/gim) || []).length, [bulkText]);
   const bulkHasSetLines = /^SET:/im.test(bulkText);
 
   useEffect(() => {
@@ -71,103 +96,134 @@ export default function App() {
     }
   }, [darkMode]);
 
-  const loadQuestions = () => {
+  const loadLibrary = () => {
     setLoadError(null);
     fetch(FUNCTION_URL)
       .then((res) => {
         if (!res.ok) throw new Error(`Server returned ${res.status}`);
-        return res.text();
+        return res.json();
       })
-      .then((text) => setRawText(text))
-      .catch((err) => setLoadError(err.message || "Failed to load questions"));
+      .then((lib) => setLibrary(lib))
+      .catch((err) => setLoadError(err.message || "Failed to load library"));
   };
 
   useEffect(() => {
-    loadQuestions();
+    loadLibrary();
   }, []);
 
-  const parsedSets = useMemo(() => parseQuestions(rawText || ""), [rawText]);
+  const currentSubject = library?.subjects.find((s) => s.id === navSubjectId) || null;
+  const currentPeriod = currentSubject?.periods.find((p) => p.name === navPeriod) || null;
 
-  const currentSet = parsedSets[activeSet] || { label: "No questions yet", questions: [] };
-  const QUESTIONS = currentSet.questions;
-  const answers = answersBySet[activeSet] || {};
-  const order = orderBySet[activeSet] || QUESTIONS.map((_, i) => i);
+  const openSubject = library?.subjects.find((s) => s.id === openRef?.subjectId) || null;
+  const openPeriod = openSubject?.periods.find((p) => p.name === openRef?.periodName) || null;
+  const openQuestionnaire = openPeriod?.questionnaires.find((q) => q.id === openRef?.questionnaireId) || null;
+
+  const QUESTIONS = useMemo(() => questionsIn(openQuestionnaire?.text), [openQuestionnaire]);
+  const qKey = openRef?.questionnaireId || "__none__";
+  const answers = answersByQ[qKey] || {};
+  const order = orderByQ[qKey] || QUESTIONS.map((_, i) => i);
 
   const handleSelect = (originalIndex, letter) => {
     if (answers[originalIndex]) return;
-    setAnswersBySet((prev) => ({
-      ...prev,
-      [activeSet]: { ...(prev[activeSet] || {}), [originalIndex]: letter },
-    }));
+    setAnswersByQ((prev) => ({ ...prev, [qKey]: { ...(prev[qKey] || {}), [originalIndex]: letter } }));
   };
 
   const handleShuffle = () => {
-    setOrderBySet((prev) => ({ ...prev, [activeSet]: shuffledIndices(QUESTIONS.length) }));
-    setAnswersBySet((prev) => ({ ...prev, [activeSet]: {} }));
+    setOrderByQ((prev) => ({ ...prev, [qKey]: shuffledIndices(QUESTIONS.length) }));
+    setAnswersByQ((prev) => ({ ...prev, [qKey]: {} }));
   };
 
   const handleReset = () => {
-    setAnswersBySet((prev) => ({ ...prev, [activeSet]: {} }));
+    setAnswersByQ((prev) => ({ ...prev, [qKey]: {} }));
   };
 
-  const handleImportBundled = async () => {
+  const openFolder = (subjectId, periodName) => {
+    setNavSubjectId(subjectId);
+    setNavPeriod(periodName);
+  };
+
+  const goToRoot = () => {
+    setNavSubjectId(null);
+    setNavPeriod(null);
+  };
+
+  const handleAddSubject = async (e) => {
+    e.preventDefault();
+    if (!newSubjectName.trim()) {
+      setSaveError("Name is required.");
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(FUNCTION_URL, { method: "PUT", body: bundledQuestionsText });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      const text = await res.text();
-      setRawText(text);
+      const lib = await postAction({ action: "addSubject", name: newSubjectName.trim() });
+      setLibrary(lib);
+      setShowNewSubject(false);
+      setNewSubjectName("");
     } catch (err) {
-      setSaveError(err.message || "Import failed");
+      setSaveError(err.message || "Failed to add subject");
     } finally {
       setSaving(false);
     }
   };
 
-  const openAddForm = () => {
-    const label = currentSet.label !== "No questions yet" ? currentSet.label : "";
-    setForm({ ...emptyForm, set: label });
-    setBulkSet(label);
-    setBulkText("");
+  const handleDeleteSubject = async (subject) => {
+    setSaving(true);
+    try {
+      const lib = await postAction({ action: "deleteSubject", subjectId: subject.id });
+      setLibrary(lib);
+      if (navSubjectId === subject.id) goToRoot();
+      if (openRef?.subjectId === subject.id) setOpenRef(null);
+      setConfirmDeleteSubject(null);
+    } catch (err) {
+      alert(err.message || "Delete failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteQuestionnaire = async ({ subjectId, periodName, questionnaire }) => {
+    setSaving(true);
+    try {
+      const lib = await postAction({
+        action: "deleteQuestionnaire",
+        subjectId,
+        periodName,
+        questionnaireId: questionnaire.id,
+      });
+      setLibrary(lib);
+      if (openRef?.questionnaireId === questionnaire.id) setOpenRef(null);
+      setConfirmDeleteQuestionnaire(null);
+    } catch (err) {
+      alert(err.message || "Delete failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openCreateModal = (subjectId, periodName) => {
+    setModalTarget({ type: "new", subjectId, periodName });
+    setQFormName("");
     setAddMode("single");
+    setForm(emptyForm);
+    setBulkText("");
     setSaveError(null);
-    setShowAddForm(true);
+  };
+
+  const openAppendModal = () => {
+    if (!openRef) return;
+    setModalTarget({ type: "append", ...openRef });
+    setAddMode("single");
+    setForm(emptyForm);
+    setBulkText("");
+    setSaveError(null);
   };
 
   const updateField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
 
-  // Shared by both the single-question form and the bulk-paste form: sends
-  // one or more already-formatted TERM/.../ANSWER/EXPLAIN blocks (separated
-  // by "---" if there's more than one) to the target set.
-  const saveBlock = async (set, block) => {
-    setSaving(true);
-    setSaveError(null);
-    try {
-      const res = await fetch(FUNCTION_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ set, block }),
-      });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      const text = await res.text();
-      setRawText(text);
-      return true;
-    } catch (err) {
-      setSaveError(err.message || "Save failed");
-      return false;
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleAddQuestion = async (e) => {
-    e.preventDefault();
-    if (!form.set.trim() || !form.term.trim() || !form.a.trim() || !form.b.trim()) {
-      setSaveError("Set, term, and at least choices A and B are required.");
-      return;
-    }
-    const block = [
+  const buildSingleBlock = () => {
+    if (!form.term.trim() || !form.a.trim() || !form.b.trim()) return null;
+    return [
       `TERM: ${form.term.trim()}`,
       `A) ${form.a.trim()}`,
       form.b.trim() && `B) ${form.b.trim()}`,
@@ -181,54 +237,69 @@ export default function App() {
     ]
       .filter(Boolean)
       .join("\n");
-
-    const ok = await saveBlock(form.set.trim(), block);
-    if (ok) {
-      setShowAddForm(false);
-      setForm(emptyForm);
-    }
   };
 
-  const handleBulkAdd = async (e) => {
+  const handleModalSubmit = async (e) => {
     e.preventDefault();
-    if (!bulkSet.trim()) {
-      setSaveError("Pick a set to add these questions to.");
+    if (modalTarget.type === "new" && !qFormName.trim()) {
+      setSaveError("Give this questionnaire a name.");
       return;
     }
-    if (bulkHasSetLines) {
-      setSaveError("Remove any \"SET:\" lines from the pasted text — pick the set above instead.");
-      return;
-    }
-    if (detectedCount === 0) {
-      setSaveError("No questions detected. Check that each one has a TERM: line.");
-      return;
-    }
-    const ok = await saveBlock(bulkSet.trim(), bulkText);
-    if (ok) {
-      setShowAddForm(false);
-      setBulkText("");
-    }
-  };
 
-  const handleDeleteSet = async (label) => {
-    setDeleting(true);
+    let block;
+    if (addMode === "single") {
+      block = buildSingleBlock();
+      if (!block) {
+        setSaveError("Term, and at least choices A and B, are required.");
+        return;
+      }
+    } else {
+      if (bulkHasSetLines) {
+        setSaveError('Remove any "SET:" lines from the pasted text — they\'re not used anymore.');
+        return;
+      }
+      if (detectedCount === 0) {
+        setSaveError("No questions detected. Check that each one has a TERM: line.");
+        return;
+      }
+      block = bulkText;
+    }
+
+    setSaving(true);
+    setSaveError(null);
     try {
-      const res = await fetch(FUNCTION_URL, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ set: label }),
-      });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
-      const text = await res.text();
-      setRawText(text);
-      setAnswersBySet({});
-      setOrderBySet({});
-      setActiveSet(0);
-      setConfirmDeleteLabel(null);
+      if (modalTarget.type === "new") {
+        const lib = await postAction({
+          action: "addQuestionnaire",
+          subjectId: modalTarget.subjectId,
+          periodName: modalTarget.periodName,
+          name: qFormName.trim(),
+          text: block,
+        });
+        setLibrary(lib);
+        // Auto-open the questionnaire just created (it's the last one in that period).
+        const subj = lib.subjects.find((s) => s.id === modalTarget.subjectId);
+        const per = subj?.periods.find((p) => p.name === modalTarget.periodName);
+        const created = per?.questionnaires[per.questionnaires.length - 1];
+        if (created) {
+          setOpenRef({ subjectId: modalTarget.subjectId, periodName: modalTarget.periodName, questionnaireId: created.id });
+        }
+        setSidebarOpen(false);
+      } else {
+        const lib = await postAction({
+          action: "appendToQuestionnaire",
+          subjectId: modalTarget.subjectId,
+          periodName: modalTarget.periodName,
+          questionnaireId: modalTarget.questionnaireId,
+          block,
+        });
+        setLibrary(lib);
+      }
+      setModalTarget(null);
     } catch (err) {
-      alert(err.message || "Delete failed");
+      setSaveError(err.message || "Save failed");
     } finally {
-      setDeleting(false);
+      setSaving(false);
     }
   };
 
@@ -238,10 +309,10 @@ export default function App() {
   ).length;
   const progressPct = QUESTIONS.length > 0 ? Math.round((answeredCount / QUESTIONS.length) * 100) : 0;
 
-  if (rawText === null && !loadError) {
+  if (library === null && !loadError) {
     return (
       <div className={"page" + (darkMode ? " dark" : "")}>
-        <div className="loadingState">Loading questions…</div>
+        <div className="loadingState">Loading library…</div>
       </div>
     );
   }
@@ -250,8 +321,8 @@ export default function App() {
     return (
       <div className={"page" + (darkMode ? " dark" : "")}>
         <div className="loadingState">
-          <p>Couldn't load questions: {loadError}</p>
-          <button className="ctrlButton" onClick={loadQuestions}>
+          <p>Couldn't load the library: {loadError}</p>
+          <button className="ctrlButton" onClick={loadLibrary}>
             Retry
           </button>
         </div>
@@ -263,12 +334,7 @@ export default function App() {
     <div className={"page" + (darkMode ? " dark" : "")}>
       <header className="header">
         <div className="topRow">
-          <button
-            className="iconToggle"
-            onClick={() => setShowSidebar(true)}
-            aria-label="Open sets menu"
-            title="Sets"
-          >
+          <button className="iconToggle" onClick={() => setSidebarOpen(true)} aria-label="Open library" title="Library">
             ☰
           </button>
           <h1>Quiz for my wifies 📖</h1>
@@ -283,32 +349,34 @@ export default function App() {
         </div>
         <p className="subtitle">Goodluck minamahal kong napakaganda</p>
 
-        {currentSet.label !== "No questions yet" && (
-          <button className="currentSetPill" onClick={() => setShowSidebar(true)}>
-            {currentSet.label} <span className="currentSetPillArrow">▾</span>
+        {openQuestionnaire && (
+          <button
+            className="currentSetPill"
+            onClick={() => {
+              openFolder(openRef.subjectId, openRef.periodName);
+              setSidebarOpen(true);
+            }}
+          >
+            {openSubject.name} › {openRef.periodName} › {openQuestionnaire.name} <span className="currentSetPillArrow">▾</span>
           </button>
         )}
 
-        <div className="controlsRow">
-          {QUESTIONS.length > 0 && (
-            <>
-              <button className="ctrlButton" onClick={handleShuffle}>
-                🔀 Shuffle
-              </button>
-              <button className="ctrlButton" onClick={handleReset} disabled={answeredCount === 0}>
-                ↺ Reset
-              </button>
-            </>
-          )}
-          <button className="ctrlButton" onClick={openAddForm}>
-            ＋ Add question
-          </button>
-        </div>
-
-        {parsedSets.length === 0 && (
-          <button className="ctrlButton" onClick={handleImportBundled} disabled={saving}>
-            {saving ? "Importing…" : "Import existing questions.txt"}
-          </button>
+        {openQuestionnaire && (
+          <div className="controlsRow">
+            {QUESTIONS.length > 0 && (
+              <>
+                <button className="ctrlButton" onClick={handleShuffle}>
+                  🔀 Shuffle
+                </button>
+                <button className="ctrlButton" onClick={handleReset} disabled={answeredCount === 0}>
+                  ↺ Reset
+                </button>
+              </>
+            )}
+            <button className="ctrlButton" onClick={openAppendModal}>
+              ＋ Add question
+            </button>
+          </div>
         )}
 
         {QUESTIONS.length > 0 && (
@@ -329,86 +397,158 @@ export default function App() {
         )}
       </header>
 
-      {showSidebar && (
-        <div className="sidebarOverlay" onClick={() => setShowSidebar(false)}>
+      {sidebarOpen && (
+        <div className="sidebarOverlay" onClick={() => setSidebarOpen(false)}>
           <aside className="sidebarPanel" onClick={(e) => e.stopPropagation()}>
             <div className="sidebarHeader">
-              <h2>Sets</h2>
-              <button className="iconToggle" onClick={() => setShowSidebar(false)} aria-label="Close">
+              <div className="breadcrumbs">
+                <button className="crumbBtn" onClick={goToRoot}>
+                  📚 Subjects
+                </button>
+                {currentSubject && (
+                  <>
+                    <span className="crumbSep">›</span>
+                    <button className="crumbBtn" onClick={() => openFolder(currentSubject.id, null)}>
+                      {currentSubject.name}
+                    </button>
+                  </>
+                )}
+                {currentPeriod && (
+                  <>
+                    <span className="crumbSep">›</span>
+                    <span className="crumbCurrent">{currentPeriod.name}</span>
+                  </>
+                )}
+              </div>
+              <button className="iconToggle" onClick={() => setSidebarOpen(false)} aria-label="Close">
                 ✕
               </button>
             </div>
 
             <div className="sidebarList">
-              {parsedSets.length === 0 && <p className="sidebarEmpty">No sets yet.</p>}
-              {parsedSets.map((set, i) => (
-                <div key={i} className={"sidebarItem" + (activeSet === i ? " sidebarItemActive" : "")}>
+              {!currentSubject &&
+                (library.subjects.length === 0 ? (
+                  <p className="sidebarEmpty">No subjects yet — add one below.</p>
+                ) : (
+                  library.subjects.map((subject) => (
+                    <div key={subject.id} className="sidebarItem">
+                      <button className="sidebarItemMain" onClick={() => openFolder(subject.id, null)}>
+                        <span className="sidebarItemLabel">📁 {subject.name}</span>
+                        <span className="sidebarItemCount">
+                          {subject.periods.reduce((sum, p) => sum + p.questionnaires.length, 0)} questionnaire(s)
+                        </span>
+                      </button>
+                      <button
+                        className="sidebarDeleteBtn"
+                        onClick={() => setConfirmDeleteSubject(subject)}
+                        aria-label={`Delete ${subject.name}`}
+                        title="Delete this subject"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  ))
+                ))}
+
+              {currentSubject &&
+                !currentPeriod &&
+                currentSubject.periods.map((period) => (
                   <button
-                    className="sidebarItemMain"
-                    onClick={() => {
-                      setActiveSet(i);
-                      setShowSidebar(false);
-                    }}
+                    key={period.name}
+                    className="sidebarItem sidebarItemMain folderRow"
+                    onClick={() => openFolder(currentSubject.id, period.name)}
                   >
-                    <span className="sidebarItemLabel">{set.label}</span>
-                    <span className="sidebarItemCount">
-                      {set.questions.length} question{set.questions.length === 1 ? "" : "s"}
-                    </span>
+                    <span className="sidebarItemLabel">📁 {period.name}</span>
+                    <span className="sidebarItemCount">{period.questionnaires.length} file(s)</span>
                   </button>
-                  <button
-                    className="sidebarDeleteBtn"
-                    onClick={() => setConfirmDeleteLabel(set.label)}
-                    disabled={deleting}
-                    aria-label={`Delete ${set.label}`}
-                    title="Delete this set"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              ))}
+                ))}
+
+              {currentPeriod &&
+                (currentPeriod.questionnaires.length === 0 ? (
+                  <p className="sidebarEmpty">No questionnaires here yet — add one below.</p>
+                ) : (
+                  currentPeriod.questionnaires.map((q) => (
+                    <div
+                      key={q.id}
+                      className={"sidebarItem" + (openRef?.questionnaireId === q.id ? " sidebarItemActive" : "")}
+                    >
+                      <button
+                        className="sidebarItemMain"
+                        onClick={() => {
+                          setOpenRef({ subjectId: currentSubject.id, periodName: currentPeriod.name, questionnaireId: q.id });
+                          setSidebarOpen(false);
+                        }}
+                      >
+                        <span className="sidebarItemLabel">📄 {q.name}</span>
+                        <span className="sidebarItemCount">{questionsIn(q.text).length} question(s)</span>
+                      </button>
+                      <button
+                        className="sidebarDeleteBtn"
+                        onClick={() =>
+                          setConfirmDeleteQuestionnaire({
+                            subjectId: currentSubject.id,
+                            periodName: currentPeriod.name,
+                            questionnaire: q,
+                          })
+                        }
+                        aria-label={`Delete ${q.name}`}
+                        title="Delete this questionnaire"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  ))
+                ))}
             </div>
 
-            <button
-              className="ctrlButton sidebarAddBtn"
-              onClick={() => {
-                setShowSidebar(false);
-                openAddForm();
-              }}
-            >
-              ＋ Add question
-            </button>
+            {!currentSubject && (
+              <button className="ctrlButton sidebarAddBtn" onClick={() => setShowNewSubject(true)}>
+                ＋ New subject
+              </button>
+            )}
+            {currentPeriod && (
+              <button
+                className="ctrlButton sidebarAddBtn"
+                onClick={() => openCreateModal(currentSubject.id, currentPeriod.name)}
+              >
+                ＋ New questionnaire
+              </button>
+            )}
           </aside>
         </div>
       )}
 
-      {confirmDeleteLabel && (
-        <div className="modalOverlay" onClick={() => !deleting && setConfirmDeleteLabel(null)}>
-          <div className="modalCard confirmCard" onClick={(e) => e.stopPropagation()}>
-            <h2>Delete this set?</h2>
-            <p>
-              This permanently deletes <strong>"{confirmDeleteLabel}"</strong> and every question in it, for
-              both of you. This can't be undone.
-            </p>
+      {showNewSubject && (
+        <div className="modalOverlay" onClick={() => !saving && setShowNewSubject(false)}>
+          <form className="modalCard" onClick={(e) => e.stopPropagation()} onSubmit={handleAddSubject}>
+            <h2>New subject</h2>
+            <label>
+              Subject name
+              <input
+                value={newSubjectName}
+                onChange={(e) => setNewSubjectName(e.target.value)}
+                placeholder="e.g. Anatomy"
+                autoFocus
+              />
+            </label>
+            <p className="bulkHint">Creates the subject with Prelim, Midterm, and Finals folders inside automatically.</p>
+            {saveError && <p className="formError">{saveError}</p>}
             <div className="modalActions">
-              <button className="ctrlButton" onClick={() => setConfirmDeleteLabel(null)} disabled={deleting}>
+              <button type="button" className="ctrlButton" onClick={() => setShowNewSubject(false)} disabled={saving}>
                 Cancel
               </button>
-              <button
-                className="ctrlButton ctrlButtonDanger"
-                onClick={() => handleDeleteSet(confirmDeleteLabel)}
-                disabled={deleting}
-              >
-                {deleting ? "Deleting…" : "Delete set"}
+              <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving}>
+                {saving ? "Creating…" : "Create subject"}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
 
-      {showAddForm && (
-        <div className="modalOverlay" onClick={() => !saving && setShowAddForm(false)}>
+      {modalTarget && (
+        <div className="modalOverlay" onClick={() => !saving && setModalTarget(null)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
-            <h2>Add question{addMode === "bulk" ? "s" : ""}</h2>
+            <h2>{modalTarget.type === "new" ? "New questionnaire" : "Add questions"}</h2>
 
             <div className="modeTabs">
               <button
@@ -427,106 +567,148 @@ export default function App() {
               </button>
             </div>
 
-            {addMode === "single" ? (
-              <form onSubmit={handleAddQuestion} className="modalForm">
+            <form onSubmit={handleModalSubmit} className="modalForm">
+              {modalTarget.type === "new" && (
                 <label>
-                  Set
-                  <input value={form.set} onChange={(e) => updateField("set", e.target.value)} placeholder="e.g. Questions 1-80" />
-                </label>
-                <label>
-                  Term / question
-                  <textarea value={form.term} onChange={(e) => updateField("term", e.target.value)} rows={2} />
-                </label>
-
-                {["a", "b", "c", "d"].map((letter) => (
-                  <label key={letter}>
-                    Choice {letter.toUpperCase()}
-                    <input value={form[letter]} onChange={(e) => updateField(letter, e.target.value)} />
-                  </label>
-                ))}
-
-                <label>
-                  Correct answer
-                  <select value={form.correct} onChange={(e) => updateField("correct", e.target.value)}>
-                    <option value="A">A</option>
-                    <option value="B">B</option>
-                    <option value="C">C</option>
-                    <option value="D">D</option>
-                  </select>
-                </label>
-
-                {["A", "B", "C", "D"].map((letter) => (
-                  <label key={letter}>
-                    Explanation {letter} (optional)
-                    <input
-                      value={form[`explain${letter}`]}
-                      onChange={(e) => updateField(`explain${letter}`, e.target.value)}
-                    />
-                  </label>
-                ))}
-
-                {saveError && <p className="formError">{saveError}</p>}
-
-                <div className="modalActions">
-                  <button type="button" className="ctrlButton" onClick={() => setShowAddForm(false)} disabled={saving}>
-                    Cancel
-                  </button>
-                  <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving}>
-                    {saving ? "Saving…" : "Save question"}
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <form onSubmit={handleBulkAdd} className="modalForm">
-                <label>
-                  Set (all pasted questions go here)
-                  <input value={bulkSet} onChange={(e) => setBulkSet(e.target.value)} placeholder="e.g. Questions 1-80" />
-                </label>
-                <label>
-                  Paste your questions
-                  <textarea
-                    value={bulkText}
-                    onChange={(e) => setBulkText(e.target.value)}
-                    rows={12}
-                    placeholder={
-                      "TERM: What does X mean?\nA) Choice one\nB) Choice two\nC) Choice three\nD) Choice four\nANSWER: B\nEXPLAIN A: ...\nEXPLAIN B: ...\nEXPLAIN C: ...\nEXPLAIN D: ...\n---\nTERM: Next question...\n..."
-                    }
+                  Questionnaire name
+                  <input
+                    value={qFormName}
+                    onChange={(e) => setQFormName(e.target.value)}
+                    placeholder="e.g. Chapter 1-3"
+                    autoFocus
                   />
                 </label>
-                <p className="bulkHint">
-                  Same format as questions.txt, separated by <code>---</code>. Don't include{" "}
-                  <code>SET:</code> lines here — pick the set above instead.
-                </p>
+              )}
 
-                {bulkText.trim() !== "" && (
-                  <p className={"detectedCount" + (detectedCount === 0 ? " detectedCountZero" : "")}>
-                    {detectedCount === 0
-                      ? "No questions detected yet"
-                      : `Detected ${detectedCount} question${detectedCount === 1 ? "" : "s"}`}
+              {addMode === "single" ? (
+                <>
+                  <label>
+                    Term / question
+                    <textarea value={form.term} onChange={(e) => updateField("term", e.target.value)} rows={2} />
+                  </label>
+                  {["a", "b", "c", "d"].map((letter) => (
+                    <label key={letter}>
+                      Choice {letter.toUpperCase()}
+                      <input value={form[letter]} onChange={(e) => updateField(letter, e.target.value)} />
+                    </label>
+                  ))}
+                  <label>
+                    Correct answer
+                    <select value={form.correct} onChange={(e) => updateField("correct", e.target.value)}>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                      <option value="C">C</option>
+                      <option value="D">D</option>
+                    </select>
+                  </label>
+                  {["A", "B", "C", "D"].map((letter) => (
+                    <label key={letter}>
+                      Explanation {letter} (optional)
+                      <input
+                        value={form[`explain${letter}`]}
+                        onChange={(e) => updateField(`explain${letter}`, e.target.value)}
+                      />
+                    </label>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <label>
+                    Paste your questions
+                    <textarea
+                      value={bulkText}
+                      onChange={(e) => setBulkText(e.target.value)}
+                      rows={12}
+                      placeholder={
+                        "TERM: What does X mean?\nA) Choice one\nB) Choice two\nC) Choice three\nD) Choice four\nANSWER: B\nEXPLAIN A: ...\nEXPLAIN B: ...\nEXPLAIN C: ...\nEXPLAIN D: ...\n---\nTERM: Next question...\n..."
+                      }
+                    />
+                  </label>
+                  <p className="bulkHint">
+                    Same TERM/A-D/ANSWER/EXPLAIN format, separated by <code>---</code>. Don't include{" "}
+                    <code>SET:</code> lines — the subject/period/file structure replaces those now.
                   </p>
-                )}
+                  {bulkText.trim() !== "" && (
+                    <p className={"detectedCount" + (detectedCount === 0 ? " detectedCountZero" : "")}>
+                      {detectedCount === 0 ? "No questions detected yet" : `Detected ${detectedCount} question${detectedCount === 1 ? "" : "s"}`}
+                    </p>
+                  )}
+                </>
+              )}
 
-                {saveError && <p className="formError">{saveError}</p>}
+              {saveError && <p className="formError">{saveError}</p>}
 
-                <div className="modalActions">
-                  <button type="button" className="ctrlButton" onClick={() => setShowAddForm(false)} disabled={saving}>
-                    Cancel
-                  </button>
-                  <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving || detectedCount === 0}>
-                    {saving ? "Saving…" : `Save ${detectedCount || ""} question${detectedCount === 1 ? "" : "s"}`}
-                  </button>
-                </div>
-              </form>
-            )}
+              <div className="modalActions">
+                <button type="button" className="ctrlButton" onClick={() => setModalTarget(null)} disabled={saving}>
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="ctrlButton ctrlButtonPrimary"
+                  disabled={saving || (addMode === "bulk" && detectedCount === 0)}
+                >
+                  {saving ? "Saving…" : modalTarget.type === "new" ? "Create questionnaire" : "Save"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteSubject && (
+        <div className="modalOverlay" onClick={() => !saving && setConfirmDeleteSubject(null)}>
+          <div className="modalCard confirmCard" onClick={(e) => e.stopPropagation()}>
+            <h2>Delete this subject?</h2>
+            <p>
+              This permanently deletes <strong>"{confirmDeleteSubject.name}"</strong> — all three periods and every
+              questionnaire inside — for both of you. This can't be undone.
+            </p>
+            <div className="modalActions">
+              <button className="ctrlButton" onClick={() => setConfirmDeleteSubject(null)} disabled={saving}>
+                Cancel
+              </button>
+              <button className="ctrlButton ctrlButtonDanger" onClick={() => handleDeleteSubject(confirmDeleteSubject)} disabled={saving}>
+                {saving ? "Deleting…" : "Delete subject"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteQuestionnaire && (
+        <div className="modalOverlay" onClick={() => !saving && setConfirmDeleteQuestionnaire(null)}>
+          <div className="modalCard confirmCard" onClick={(e) => e.stopPropagation()}>
+            <h2>Delete this questionnaire?</h2>
+            <p>
+              This permanently deletes <strong>"{confirmDeleteQuestionnaire.questionnaire.name}"</strong> and every
+              question in it, for both of you. This can't be undone.
+            </p>
+            <div className="modalActions">
+              <button className="ctrlButton" onClick={() => setConfirmDeleteQuestionnaire(null)} disabled={saving}>
+                Cancel
+              </button>
+              <button
+                className="ctrlButton ctrlButtonDanger"
+                onClick={() => handleDeleteQuestionnaire(confirmDeleteQuestionnaire)}
+                disabled={saving}
+              >
+                {saving ? "Deleting…" : "Delete questionnaire"}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       <main>
-        {QUESTIONS.length === 0 ? (
+        {!openQuestionnaire ? (
           <div className="emptySet">
-            <h2>No questions here yet</h2>
-            <p>Use "＋ Add question" above, or import your existing questions.txt.</p>
+            <h2>Nothing open yet</h2>
+            <p>Tap ☰ to browse your subjects and open a questionnaire, or create your first subject.</p>
+          </div>
+        ) : QUESTIONS.length === 0 ? (
+          <div className="emptySet">
+            <h2>This questionnaire is empty</h2>
+            <p>Use "＋ Add question" above to add some.</p>
           </div>
         ) : (
           order.map((originalIndex, displayIndex) => {

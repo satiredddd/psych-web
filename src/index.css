@@ -681,3 +681,39 @@ body {
 .sidebarAddBtn {
   width: 100%;
 }
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 0.85rem;
+}
+
+.crumbBtn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 0.85rem;
+  padding: 2px 2px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.crumbCurrent {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.crumbSep {
+  color: var(--muted);
+}
+
+.folderRow {
+  width: 100%;
+  border-radius: 12px;
+  border: 1.5px solid var(--choice-border);
+}
