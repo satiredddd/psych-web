@@ -1,8 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  onSnapshot,
+  query,
+  runTransaction,
+  where,
+  writeBatch,
+} from "firebase/firestore";
 import "./index.css";
 import { parseQuestions } from "./parser";
+import { db } from "./firebase";
 
-const FUNCTION_URL = "/.netlify/functions/library";
 const PERIODS = ["Prelim", "Midterm", "Finals"];
 
 function shuffledIndices(length) {
@@ -33,19 +45,14 @@ const emptyForm = {
   explainD: "",
 };
 
-async function postAction(body) {
-  const res = await fetch(FUNCTION_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) throw new Error(`Server returned ${res.status}`);
-  return res.json();
-}
-
 export default function App() {
-  const [library, setLibrary] = useState(null); // null = loading
+  // Firestore layout:
+  //   subjects/{id}        -> { name, createdAt }
+  //   questionnaires/{id}  -> { subjectId, period, name, text, createdAt }
+  const [subjectsRaw, setSubjectsRaw] = useState(null); // null = loading
+  const [questionnairesRaw, setQuestionnairesRaw] = useState(null);
   const [loadError, setLoadError] = useState(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   // Sidebar browsing location (independent from which questionnaire is open
   // for quiz-taking, so reopening the sidebar returns to the same folder).
@@ -96,20 +103,44 @@ export default function App() {
     }
   }, [darkMode]);
 
-  const loadLibrary = () => {
-    setLoadError(null);
-    fetch(FUNCTION_URL)
-      .then((res) => {
-        if (!res.ok) throw new Error(`Server returned ${res.status}`);
-        return res.json();
-      })
-      .then((lib) => setLibrary(lib))
-      .catch((err) => setLoadError(err.message || "Failed to load library"));
-  };
-
+  // Realtime listeners: any change (yours or hers) shows up instantly.
   useEffect(() => {
-    loadLibrary();
-  }, []);
+    setLoadError(null);
+    const onError = (err) => setLoadError(err.message || "Failed to load library");
+
+    const unsubSubjects = onSnapshot(
+      collection(db, "subjects"),
+      (snap) => setSubjectsRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      onError
+    );
+    const unsubQuestionnaires = onSnapshot(
+      collection(db, "questionnaires"),
+      (snap) => setQuestionnairesRaw(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      onError
+    );
+
+    return () => {
+      unsubSubjects();
+      unsubQuestionnaires();
+    };
+  }, [retryKey]);
+
+  // Rebuild the Subjects > Periods > Questionnaires tree the UI expects.
+  const library = useMemo(() => {
+    if (subjectsRaw === null || questionnairesRaw === null) return null;
+    const byCreated = (a, b) => (a.createdAt || 0) - (b.createdAt || 0);
+    const subjects = [...subjectsRaw].sort(byCreated).map((s) => ({
+      id: s.id,
+      name: s.name,
+      periods: PERIODS.map((periodName) => ({
+        name: periodName,
+        questionnaires: questionnairesRaw
+          .filter((q) => q.subjectId === s.id && q.period === periodName)
+          .sort(byCreated),
+      })),
+    }));
+    return { subjects };
+  }, [subjectsRaw, questionnairesRaw]);
 
   const currentSubject = library?.subjects.find((s) => s.id === navSubjectId) || null;
   const currentPeriod = currentSubject?.periods.find((p) => p.name === navPeriod) || null;
@@ -121,7 +152,10 @@ export default function App() {
   const QUESTIONS = useMemo(() => questionsIn(openQuestionnaire?.text), [openQuestionnaire]);
   const qKey = openRef?.questionnaireId || "__none__";
   const answers = answersByQ[qKey] || {};
-  const order = orderByQ[qKey] || QUESTIONS.map((_, i) => i);
+  const storedOrder = orderByQ[qKey];
+  // If questions were added after shuffling, the saved order is stale — fall back.
+  const order =
+    storedOrder && storedOrder.length === QUESTIONS.length ? storedOrder : QUESTIONS.map((_, i) => i);
 
   const handleSelect = (originalIndex, letter) => {
     if (answers[originalIndex]) return;
@@ -156,8 +190,10 @@ export default function App() {
     setSaving(true);
     setSaveError(null);
     try {
-      const lib = await postAction({ action: "addSubject", name: newSubjectName.trim() });
-      setLibrary(lib);
+      await addDoc(collection(db, "subjects"), {
+        name: newSubjectName.trim(),
+        createdAt: Date.now(),
+      });
       setShowNewSubject(false);
       setNewSubjectName("");
     } catch (err) {
@@ -170,8 +206,13 @@ export default function App() {
   const handleDeleteSubject = async (subject) => {
     setSaving(true);
     try {
-      const lib = await postAction({ action: "deleteSubject", subjectId: subject.id });
-      setLibrary(lib);
+      // Delete the subject and every questionnaire inside it in one batch.
+      const snap = await getDocs(query(collection(db, "questionnaires"), where("subjectId", "==", subject.id)));
+      const batch = writeBatch(db);
+      snap.docs.forEach((d) => batch.delete(d.ref));
+      batch.delete(doc(db, "subjects", subject.id));
+      await batch.commit();
+
       if (navSubjectId === subject.id) goToRoot();
       if (openRef?.subjectId === subject.id) setOpenRef(null);
       setConfirmDeleteSubject(null);
@@ -182,16 +223,10 @@ export default function App() {
     }
   };
 
-  const handleDeleteQuestionnaire = async ({ subjectId, periodName, questionnaire }) => {
+  const handleDeleteQuestionnaire = async ({ questionnaire }) => {
     setSaving(true);
     try {
-      const lib = await postAction({
-        action: "deleteQuestionnaire",
-        subjectId,
-        periodName,
-        questionnaireId: questionnaire.id,
-      });
-      setLibrary(lib);
+      await deleteDoc(doc(db, "questionnaires", questionnaire.id));
       if (openRef?.questionnaireId === questionnaire.id) setOpenRef(null);
       setConfirmDeleteQuestionnaire(null);
     } catch (err) {
@@ -262,38 +297,35 @@ export default function App() {
         setSaveError("No questions detected. Check that each one has a TERM: line.");
         return;
       }
-      block = bulkText;
+      block = bulkText.trim();
     }
 
     setSaving(true);
     setSaveError(null);
     try {
       if (modalTarget.type === "new") {
-        const lib = await postAction({
-          action: "addQuestionnaire",
+        const ref = await addDoc(collection(db, "questionnaires"), {
           subjectId: modalTarget.subjectId,
-          periodName: modalTarget.periodName,
+          period: modalTarget.periodName,
           name: qFormName.trim(),
           text: block,
+          createdAt: Date.now(),
         });
-        setLibrary(lib);
-        // Auto-open the questionnaire just created (it's the last one in that period).
-        const subj = lib.subjects.find((s) => s.id === modalTarget.subjectId);
-        const per = subj?.periods.find((p) => p.name === modalTarget.periodName);
-        const created = per?.questionnaires[per.questionnaires.length - 1];
-        if (created) {
-          setOpenRef({ subjectId: modalTarget.subjectId, periodName: modalTarget.periodName, questionnaireId: created.id });
-        }
-        setSidebarOpen(false);
-      } else {
-        const lib = await postAction({
-          action: "appendToQuestionnaire",
+        setOpenRef({
           subjectId: modalTarget.subjectId,
           periodName: modalTarget.periodName,
-          questionnaireId: modalTarget.questionnaireId,
-          block,
+          questionnaireId: ref.id,
         });
-        setLibrary(lib);
+        setSidebarOpen(false);
+      } else {
+        // Transaction so two people appending at once never overwrite each other.
+        const ref = doc(db, "questionnaires", modalTarget.questionnaireId);
+        await runTransaction(db, async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists()) throw new Error("This questionnaire no longer exists.");
+          const existing = (snap.data().text || "").trim();
+          tx.update(ref, { text: existing ? existing + "\n---\n" + block : block });
+        });
       }
       setModalTarget(null);
     } catch (err) {
@@ -322,7 +354,7 @@ export default function App() {
       <div className={"page" + (darkMode ? " dark" : "")}>
         <div className="loadingState">
           <p>Couldn't load the library: {loadError}</p>
-          <button className="ctrlButton" onClick={loadLibrary}>
+          <button className="ctrlButton" onClick={() => setRetryKey((k) => k + 1)}>
             Retry
           </button>
         </div>
@@ -357,7 +389,8 @@ export default function App() {
               setSidebarOpen(true);
             }}
           >
-            {openSubject.name} › {openRef.periodName} › {openQuestionnaire.name} <span className="currentSetPillArrow">▾</span>
+            {openSubject.name} › {openRef.periodName} › {openQuestionnaire.name}{" "}
+            <span className="currentSetPillArrow">▾</span>
           </button>
         )}
 
@@ -475,7 +508,11 @@ export default function App() {
                       <button
                         className="sidebarItemMain"
                         onClick={() => {
-                          setOpenRef({ subjectId: currentSubject.id, periodName: currentPeriod.name, questionnaireId: q.id });
+                          setOpenRef({
+                            subjectId: currentSubject.id,
+                            periodName: currentPeriod.name,
+                            questionnaireId: q.id,
+                          });
                           setSidebarOpen(false);
                         }}
                       >
@@ -502,7 +539,13 @@ export default function App() {
             </div>
 
             {!currentSubject && (
-              <button className="ctrlButton sidebarAddBtn" onClick={() => setShowNewSubject(true)}>
+              <button
+                className="ctrlButton sidebarAddBtn"
+                onClick={() => {
+                  setSaveError(null);
+                  setShowNewSubject(true);
+                }}
+              >
                 ＋ New subject
               </button>
             )}
@@ -531,7 +574,9 @@ export default function App() {
                 autoFocus
               />
             </label>
-            <p className="bulkHint">Creates the subject with Prelim, Midterm, and Finals folders inside automatically.</p>
+            <p className="bulkHint">
+              Creates the subject with Prelim, Midterm, and Finals folders inside automatically.
+            </p>
             {saveError && <p className="formError">{saveError}</p>}
             <div className="modalActions">
               <button type="button" className="ctrlButton" onClick={() => setShowNewSubject(false)} disabled={saving}>
@@ -630,7 +675,9 @@ export default function App() {
                   </p>
                   {bulkText.trim() !== "" && (
                     <p className={"detectedCount" + (detectedCount === 0 ? " detectedCountZero" : "")}>
-                      {detectedCount === 0 ? "No questions detected yet" : `Detected ${detectedCount} question${detectedCount === 1 ? "" : "s"}`}
+                      {detectedCount === 0
+                        ? "No questions detected yet"
+                        : `Detected ${detectedCount} question${detectedCount === 1 ? "" : "s"}`}
                     </p>
                   )}
                 </>
@@ -667,7 +714,11 @@ export default function App() {
               <button className="ctrlButton" onClick={() => setConfirmDeleteSubject(null)} disabled={saving}>
                 Cancel
               </button>
-              <button className="ctrlButton ctrlButtonDanger" onClick={() => handleDeleteSubject(confirmDeleteSubject)} disabled={saving}>
+              <button
+                className="ctrlButton ctrlButtonDanger"
+                onClick={() => handleDeleteSubject(confirmDeleteSubject)}
+                disabled={saving}
+              >
                 {saving ? "Deleting…" : "Delete subject"}
               </button>
             </div>
@@ -713,6 +764,7 @@ export default function App() {
         ) : (
           order.map((originalIndex, displayIndex) => {
             const q = QUESTIONS[originalIndex];
+            if (!q) return null; // guards against a stale shuffle order after edits
             const selected = answers[originalIndex];
             const isAnswered = Boolean(selected);
             const isCorrect = selected === q.correct;
