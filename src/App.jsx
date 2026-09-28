@@ -8,6 +8,7 @@ import {
   onSnapshot,
   query,
   runTransaction,
+  updateDoc,
   where,
   writeBatch,
 } from "firebase/firestore";
@@ -30,6 +31,24 @@ function shuffledIndices(length) {
 // hands back a single set — this just unwraps its question list.
 function questionsIn(text) {
   return parseQuestions(text || "")[0]?.questions || [];
+}
+
+// Splits stored text into its "---"-separated blocks (same rule as the parser).
+function splitBlocks(text) {
+  return (text || "")
+    .split(/^[ \t\r]*---[ \t\r]*$/m)
+    .map((b) => b.trim())
+    .filter(Boolean);
+}
+
+// Positions (in splitBlocks order) of the blocks that parse into a real
+// question, so the Nth displayed question maps back to its block.
+function validBlockPositions(blocks) {
+  const positions = [];
+  blocks.forEach((b, i) => {
+    if (questionsIn(b).length === 1) positions.push(i);
+  });
+  return positions;
 }
 
 const emptyForm = {
@@ -88,6 +107,12 @@ export default function App() {
 
   const [confirmDeleteSubject, setConfirmDeleteSubject] = useState(null);
   const [confirmDeleteQuestionnaire, setConfirmDeleteQuestionnaire] = useState(null);
+
+  // Editing: { type: "raw" } edits the whole text + name;
+  // { type: "question", index, term } edits one question via the form fields.
+  const [editTarget, setEditTarget] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [editText, setEditText] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
@@ -335,6 +360,79 @@ export default function App() {
     }
   };
 
+  const openRawEdit = () => {
+    if (!openQuestionnaire) return;
+    setEditTarget({ type: "raw" });
+    setEditName(openQuestionnaire.name);
+    setEditText(openQuestionnaire.text || "");
+    setSaveError(null);
+  };
+
+  const openQuestionEdit = (index) => {
+    const q = QUESTIONS[index];
+    if (!q) return;
+    setForm({
+      term: q.term,
+      a: q.choices.A,
+      b: q.choices.B,
+      c: q.choices.C,
+      d: q.choices.D,
+      correct: q.correct,
+      explainA: q.explanations.A,
+      explainB: q.explanations.B,
+      explainC: q.explanations.C,
+      explainD: q.explanations.D,
+    });
+    setEditTarget({ type: "question", index, term: q.term });
+    setSaveError(null);
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!openRef) return;
+    const ref = doc(db, "questionnaires", openRef.questionnaireId);
+
+    setSaving(true);
+    setSaveError(null);
+    try {
+      if (editTarget.type === "raw") {
+        if (!editName.trim()) throw new Error("Name can't be empty.");
+        if (/^SET:/im.test(editText)) {
+          throw new Error('Remove any "SET:" lines — they\'re not used anymore.');
+        }
+        await updateDoc(ref, { name: editName.trim(), text: editText.trim() });
+        // Question positions may have changed, so clear answers and any shuffle.
+        const key = openRef.questionnaireId;
+        setAnswersByQ((prev) => ({ ...prev, [key]: {} }));
+        setOrderByQ((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+      } else {
+        const block = buildSingleBlock();
+        if (!block) throw new Error("Term, and at least choices A and B, are required.");
+        // Transaction: re-read the latest text so we never overwrite someone else's edit.
+        await runTransaction(db, async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists()) throw new Error("This questionnaire no longer exists.");
+          const blocks = splitBlocks(snap.data().text);
+          const pos = validBlockPositions(blocks)[editTarget.index];
+          if (pos === undefined || questionsIn(blocks[pos])[0]?.term !== editTarget.term) {
+            throw new Error("This question was changed elsewhere. Close this and try again.");
+          }
+          blocks[pos] = block;
+          tx.update(ref, { text: blocks.join("\n---\n") });
+        });
+      }
+      setEditTarget(null);
+    } catch (err) {
+      setSaveError(err.message || "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const answeredCount = Object.keys(answers).length;
   const correctCount = Object.entries(answers).filter(
     ([originalIndex, letter]) => QUESTIONS[originalIndex]?.correct === letter
@@ -408,6 +506,9 @@ export default function App() {
             )}
             <button className="ctrlButton" onClick={openAppendModal}>
               ＋ Add question
+            </button>
+            <button className="ctrlButton" onClick={openRawEdit}>
+              ✏️ Edit text
             </button>
           </div>
         )}
@@ -702,6 +803,75 @@ export default function App() {
         </div>
       )}
 
+      {editTarget && (
+        <div className="modalOverlay" onClick={() => !saving && setEditTarget(null)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h2>{editTarget.type === "raw" ? "Edit questionnaire text" : "Edit question"}</h2>
+
+            <form onSubmit={handleEditSubmit} className="modalForm">
+              {editTarget.type === "raw" ? (
+                <>
+                  <label>
+                    Questionnaire name
+                    <input value={editName} onChange={(e) => setEditName(e.target.value)} />
+                  </label>
+                  <label>
+                    Text
+                    <textarea value={editText} onChange={(e) => setEditText(e.target.value)} rows={16} />
+                  </label>
+                  <p className="bulkHint">
+                    Same TERM/A-D/ANSWER/EXPLAIN format, questions separated by <code>---</code>. Delete a
+                    whole block to remove a question.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <label>
+                    Term / question
+                    <textarea value={form.term} onChange={(e) => updateField("term", e.target.value)} rows={2} />
+                  </label>
+                  {["a", "b", "c", "d"].map((letter) => (
+                    <label key={letter}>
+                      Choice {letter.toUpperCase()}
+                      <input value={form[letter]} onChange={(e) => updateField(letter, e.target.value)} />
+                    </label>
+                  ))}
+                  <label>
+                    Correct answer
+                    <select value={form.correct} onChange={(e) => updateField("correct", e.target.value)}>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                      <option value="C">C</option>
+                      <option value="D">D</option>
+                    </select>
+                  </label>
+                  {["A", "B", "C", "D"].map((letter) => (
+                    <label key={letter}>
+                      Explanation {letter} (optional)
+                      <input
+                        value={form[`explain${letter}`]}
+                        onChange={(e) => updateField(`explain${letter}`, e.target.value)}
+                      />
+                    </label>
+                  ))}
+                </>
+              )}
+
+              {saveError && <p className="formError">{saveError}</p>}
+
+              <div className="modalActions">
+                <button type="button" className="ctrlButton" onClick={() => setEditTarget(null)} disabled={saving}>
+                  Cancel
+                </button>
+                <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving}>
+                  {saving ? "Saving…" : "Save changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {confirmDeleteSubject && (
         <div className="modalOverlay" onClick={() => !saving && setConfirmDeleteSubject(null)}>
           <div className="modalCard confirmCard" onClick={(e) => e.stopPropagation()}>
@@ -774,7 +944,12 @@ export default function App() {
                 className={"card" + (isAnswered ? (isCorrect ? " correctCard" : " wrongCard") : "")}
                 key={originalIndex}
               >
-                <div className="qNumber">Question {displayIndex + 1}</div>
+                <div className="qHeader">
+                  <div className="qNumber">Question {displayIndex + 1}</div>
+                  <button className="qEditBtn" onClick={() => openQuestionEdit(originalIndex)}>
+                    ✏️ Edit
+                  </button>
+                </div>
                 <p className="term">{q.term}</p>
 
                 <div className="choices">
