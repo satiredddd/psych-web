@@ -18,6 +18,46 @@ import { db } from "./firebase";
 
 const PERIODS = ["Prelim", "Midterm", "Finals"];
 
+// Clean stroke icons (Lucide-style), drawn inline so they inherit text color.
+const ICONS = {
+  menu: (<><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></>),
+  x: (<><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>),
+  moon: (<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />),
+  sun: (<><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></>),
+  shuffle: (<><path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 2-1.7 3.3-1.7H22" /><path d="m18 2 4 4-4 4" /><path d="M2 6h1.9c1.5 0 2.9.9 3.6 2.2" /><path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8" /><path d="m18 14 4 4-4 4" /></>),
+  reset: (<><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /></>),
+  plus: (<><path d="M5 12h14" /><path d="M12 5v14" /></>),
+  trash: (<><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /><path d="M10 11v6" /><path d="M14 11v6" /></>),
+  folder: (<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />),
+  file: (<><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" /></>),
+  library: (<><path d="m16 6 4 14" /><path d="M12 6v14" /><path d="M8 8v12" /><path d="M4 4v16" /></>),
+  pencil: (<><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></>),
+  chevronDown: (<path d="m6 9 6 6 6-6" />),
+  chevronRight: (<path d="m9 18 6-6-6-6" />),
+  checkCircle: (<><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></>),
+  xCircle: (<><circle cx="12" cy="12" r="10" /><path d="m15 9-6 6" /><path d="m9 9 6 6" /></>),
+  alertCircle: (<><circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" /></>),
+};
+
+function Icon({ name, size = 18, className = "" }) {
+  return (
+    <svg
+      className={"icon " + className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {ICONS[name]}
+    </svg>
+  );
+}
+
 function shuffledIndices(length) {
   const arr = Array.from({ length }, (_, i) => i);
   for (let i = arr.length - 1; i > 0; i--) {
@@ -116,6 +156,19 @@ export default function App() {
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
+
+  // Floating buttons: show the menu button once you've scrolled past the header,
+  // and cycle through wrong answers when the "review" button is tapped.
+  const [scrolled, setScrolled] = useState(false);
+  const [jumpCursor, setJumpCursor] = useState(0);
+  const [flashIndex, setFlashIndex] = useState(null);
+
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 180);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   const detectedCount = useMemo(() => (bulkText.match(/^TERM:/gim) || []).length, [bulkText]);
   const bulkHasSetLines = /^SET:/im.test(bulkText);
@@ -439,6 +492,23 @@ export default function App() {
   ).length;
   const progressPct = QUESTIONS.length > 0 ? Math.round((answeredCount / QUESTIONS.length) * 100) : 0;
 
+  // Once everything is answered, list the wrong ones (in the order they appear on screen).
+  const allAnswered = QUESTIONS.length > 0 && answeredCount === QUESTIONS.length;
+  const wrongIndices = allAnswered ? order.filter((i) => answers[i] !== QUESTIONS[i]?.correct) : [];
+
+  useEffect(() => {
+    setJumpCursor(0);
+  }, [qKey, allAnswered]);
+
+  const jumpToWrong = () => {
+    if (wrongIndices.length === 0) return;
+    const target = wrongIndices[jumpCursor % wrongIndices.length];
+    document.getElementById(`q-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlashIndex(target);
+    setTimeout(() => setFlashIndex(null), 1400);
+    setJumpCursor((c) => (c + 1) % wrongIndices.length);
+  };
+
   if (library === null && !loadError) {
     return (
       <div className={"page" + (darkMode ? " dark" : "")}>
@@ -465,7 +535,7 @@ export default function App() {
       <header className="header">
         <div className="topRow">
           <button className="iconToggle" onClick={() => setSidebarOpen(true)} aria-label="Open library" title="Library">
-            ☰
+            <Icon name="menu" size={20} />
           </button>
           <h1>Quiz for my wifies 📖</h1>
           <button
@@ -474,7 +544,7 @@ export default function App() {
             aria-label="Toggle dark mode"
             title="Toggle dark mode"
           >
-            {darkMode ? "☀️" : "🌙"}
+            <Icon name={darkMode ? "sun" : "moon"} size={19} />
           </button>
         </div>
         <p className="subtitle">Goodluck minamahal kong napakaganda</p>
@@ -487,8 +557,14 @@ export default function App() {
               setSidebarOpen(true);
             }}
           >
-            {openSubject.name} › {openRef.periodName} › {openQuestionnaire.name}{" "}
-            <span className="currentSetPillArrow">▾</span>
+            <span className="pillText">
+              {openSubject.name}
+              <Icon name="chevronRight" size={12} className="pillSep" />
+              {openRef.periodName}
+              <Icon name="chevronRight" size={12} className="pillSep" />
+              {openQuestionnaire.name}
+            </span>
+            <Icon name="chevronDown" size={15} />
           </button>
         )}
 
@@ -497,18 +573,22 @@ export default function App() {
             {QUESTIONS.length > 0 && (
               <>
                 <button className="ctrlButton" onClick={handleShuffle}>
-                  🔀 Shuffle
+                  <Icon name="shuffle" size={16} />
+                  Shuffle
                 </button>
                 <button className="ctrlButton" onClick={handleReset} disabled={answeredCount === 0}>
-                  ↺ Reset
+                  <Icon name="reset" size={16} />
+                  Reset
                 </button>
               </>
             )}
             <button className="ctrlButton" onClick={openAppendModal}>
-              ＋ Add question
+              <Icon name="plus" size={16} />
+              Add question
             </button>
             <button className="ctrlButton" onClick={openRawEdit}>
-              ✏️ Edit text
+              <Icon name="pencil" size={15} />
+              Edit text
             </button>
           </div>
         )}
@@ -537,11 +617,12 @@ export default function App() {
             <div className="sidebarHeader">
               <div className="breadcrumbs">
                 <button className="crumbBtn" onClick={goToRoot}>
-                  📚 Subjects
+                  <Icon name="library" size={16} />
+                  Subjects
                 </button>
                 {currentSubject && (
                   <>
-                    <span className="crumbSep">›</span>
+                    <Icon name="chevronRight" size={13} className="crumbSep" />
                     <button className="crumbBtn" onClick={() => openFolder(currentSubject.id, null)}>
                       {currentSubject.name}
                     </button>
@@ -549,13 +630,13 @@ export default function App() {
                 )}
                 {currentPeriod && (
                   <>
-                    <span className="crumbSep">›</span>
+                    <Icon name="chevronRight" size={13} className="crumbSep" />
                     <span className="crumbCurrent">{currentPeriod.name}</span>
                   </>
                 )}
               </div>
               <button className="iconToggle" onClick={() => setSidebarOpen(false)} aria-label="Close">
-                ✕
+                <Icon name="x" size={18} />
               </button>
             </div>
 
@@ -567,7 +648,10 @@ export default function App() {
                   library.subjects.map((subject) => (
                     <div key={subject.id} className="sidebarItem">
                       <button className="sidebarItemMain" onClick={() => openFolder(subject.id, null)}>
-                        <span className="sidebarItemLabel">📁 {subject.name}</span>
+                        <span className="sidebarItemLabel">
+                          <Icon name="folder" size={16} className="labelIcon" />
+                          <span className="labelText">{subject.name}</span>
+                        </span>
                         <span className="sidebarItemCount">
                           {subject.periods.reduce((sum, p) => sum + p.questionnaires.length, 0)} questionnaire(s)
                         </span>
@@ -578,7 +662,7 @@ export default function App() {
                         aria-label={`Delete ${subject.name}`}
                         title="Delete this subject"
                       >
-                        🗑️
+                        <Icon name="trash" size={17} />
                       </button>
                     </div>
                   ))
@@ -592,7 +676,10 @@ export default function App() {
                     className="sidebarItem sidebarItemMain folderRow"
                     onClick={() => openFolder(currentSubject.id, period.name)}
                   >
-                    <span className="sidebarItemLabel">📁 {period.name}</span>
+                    <span className="sidebarItemLabel">
+                      <Icon name="folder" size={16} className="labelIcon" />
+                      <span className="labelText">{period.name}</span>
+                    </span>
                     <span className="sidebarItemCount">{period.questionnaires.length} file(s)</span>
                   </button>
                 ))}
@@ -617,7 +704,10 @@ export default function App() {
                           setSidebarOpen(false);
                         }}
                       >
-                        <span className="sidebarItemLabel">📄 {q.name}</span>
+                        <span className="sidebarItemLabel">
+                          <Icon name="file" size={16} className="labelIcon" />
+                          <span className="labelText">{q.name}</span>
+                        </span>
                         <span className="sidebarItemCount">{questionsIn(q.text).length} question(s)</span>
                       </button>
                       <button
@@ -632,7 +722,7 @@ export default function App() {
                         aria-label={`Delete ${q.name}`}
                         title="Delete this questionnaire"
                       >
-                        🗑️
+                        <Icon name="trash" size={17} />
                       </button>
                     </div>
                   ))
@@ -647,7 +737,8 @@ export default function App() {
                   setShowNewSubject(true);
                 }}
               >
-                ＋ New subject
+                <Icon name="plus" size={17} />
+                New subject
               </button>
             )}
             {currentPeriod && (
@@ -655,7 +746,8 @@ export default function App() {
                 className="ctrlButton sidebarAddBtn"
                 onClick={() => openCreateModal(currentSubject.id, currentPeriod.name)}
               >
-                ＋ New questionnaire
+                <Icon name="plus" size={17} />
+                New questionnaire
               </button>
             )}
           </aside>
@@ -924,12 +1016,12 @@ export default function App() {
         {!openQuestionnaire ? (
           <div className="emptySet">
             <h2>Nothing open yet</h2>
-            <p>Tap ☰ to browse your subjects and open a questionnaire, or create your first subject.</p>
+            <p>Tap the menu button to browse your subjects and open a questionnaire, or create your first subject.</p>
           </div>
         ) : QUESTIONS.length === 0 ? (
           <div className="emptySet">
             <h2>This questionnaire is empty</h2>
-            <p>Use "＋ Add question" above to add some.</p>
+            <p>Use "Add question" above to add some.</p>
           </div>
         ) : (
           order.map((originalIndex, displayIndex) => {
@@ -941,16 +1033,18 @@ export default function App() {
 
             return (
               <section
-                className={"card" + (isAnswered ? (isCorrect ? " correctCard" : " wrongCard") : "")}
+                id={`q-${originalIndex}`}
+                className={
+                  "card" +
+                  (isAnswered ? (isCorrect ? " correctCard" : " wrongCard") : "") +
+                  (flashIndex === originalIndex ? " flashCard" : "")
+                }
                 key={originalIndex}
               >
                 <div className="qHeader">
                   <div className="qNumber">Question {displayIndex + 1}</div>
                   <button className="qEditBtn" onClick={() => openQuestionEdit(originalIndex)}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M12 20h9" />
-                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                    </svg>
+                    <Icon name="pencil" size={13} />
                     Edit
                   </button>
                 </div>
@@ -987,15 +1081,18 @@ export default function App() {
                   <div className="feedback">
                     {isCorrect ? (
                       <p className="feedbackCorrect">
-                        ✅ Correct! <strong>{selected}</strong> — {q.explanations[selected]}
+                        <Icon name="checkCircle" size={16} className="fbIcon" />
+                        Correct! <strong>{selected}</strong> — {q.explanations[selected]}
                       </p>
                     ) : (
                       <>
                         <p className="feedbackWrong">
-                          ❌ <strong>Your answer: {selected}</strong> — {q.choices[selected]}
+                          <Icon name="xCircle" size={16} className="fbIcon" />
+                          <strong>Your answer: {selected}</strong> — {q.choices[selected]}
                         </p>
                         <p className="feedbackRight">
-                          ✅ <strong>Correct answer: {q.correct}</strong> — {q.choices[q.correct]}
+                          <Icon name="checkCircle" size={16} className="fbIcon" />
+                          <strong>Correct answer: {q.correct}</strong> — {q.choices[q.correct]}
                         </p>
                         <p className="feedbackExplain">
                           <strong>Why:</strong> {q.explanations[q.correct]}
@@ -1019,6 +1116,23 @@ export default function App() {
           </p>
         )}
       </footer>
+
+      <button
+        className={"fab fabMenu" + (scrolled ? " fabVisible" : "")}
+        onClick={() => setSidebarOpen(true)}
+        aria-label="Open library"
+        title="Library"
+        tabIndex={scrolled ? 0 : -1}
+      >
+        <Icon name="menu" size={21} />
+      </button>
+
+      {wrongIndices.length > 0 && (
+        <button className="fab fabJump" onClick={jumpToWrong} aria-label="Jump to a wrong answer">
+          <Icon name="alertCircle" size={19} />
+          <span>Review {wrongIndices.length} wrong</span>
+        </button>
+      )}
     </div>
   );
 }

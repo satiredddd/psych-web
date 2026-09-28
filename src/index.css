@@ -765,3 +765,417 @@ body {
   background: var(--accent-soft);
   color: var(--accent);
 }
+
+/* =====================================================================
+   Clean buttons, icons & floating actions
+   (kept last so these refinements win over the earlier rules)
+   ===================================================================== */
+
+:root {
+  --shadow-sm: 0 1px 2px rgba(43, 35, 32, 0.06), 0 1px 3px rgba(43, 35, 32, 0.05);
+  --shadow-md: 0 6px 20px rgba(43, 35, 32, 0.16);
+  --on-accent: #ffffff;
+}
+
+.page.dark {
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --on-accent: #2b1520;
+}
+
+.page {
+  padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+}
+
+.icon {
+  flex: 0 0 auto;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* ---- Shared button feel ---- */
+.ctrlButton,
+.iconToggle,
+.currentSetPill,
+.qEditBtn,
+.modeTab,
+.crumbBtn,
+.sidebarDeleteBtn {
+  font-family: inherit;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    box-shadow 0.15s ease, transform 0.1s ease, filter 0.15s ease;
+}
+
+.ctrlButton:focus-visible,
+.iconToggle:focus-visible,
+.currentSetPill:focus-visible,
+.qEditBtn:focus-visible,
+.modeTab:focus-visible,
+.crumbBtn:focus-visible,
+.sidebarItemMain:focus-visible,
+.sidebarDeleteBtn:focus-visible,
+.choice:focus-visible,
+.fab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---- Main buttons ---- */
+.controlsRow {
+  flex-wrap: wrap;
+}
+
+.ctrlButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+  box-shadow: var(--shadow-sm);
+}
+
+.ctrlButton .icon {
+  color: var(--accent);
+}
+
+.ctrlButton:hover:not(:disabled) {
+  border-color: var(--accent-soft-hover);
+}
+
+.ctrlButton:active:not(:disabled) {
+  transform: scale(0.97);
+  background: var(--accent-soft);
+}
+
+.ctrlButton:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+}
+
+.ctrlButtonPrimary,
+.sidebarAddBtn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 2px 8px rgba(179, 67, 106, 0.28);
+}
+
+.ctrlButtonPrimary .icon,
+.sidebarAddBtn .icon {
+  color: var(--on-accent);
+}
+
+.ctrlButtonPrimary:hover:not(:disabled),
+.sidebarAddBtn:hover:not(:disabled) {
+  border-color: var(--accent);
+  filter: brightness(1.06);
+}
+
+.ctrlButtonPrimary:active:not(:disabled),
+.sidebarAddBtn:active:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(0.94);
+}
+
+.sidebarAddBtn {
+  width: 100%;
+  min-height: 44px;
+  font-size: 0.9rem;
+}
+
+.ctrlButtonDanger {
+  background: var(--wrong-strong);
+  border-color: var(--wrong-strong);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(217, 83, 79, 0.28);
+}
+
+.ctrlButtonDanger:hover:not(:disabled) {
+  border-color: var(--wrong-strong);
+  filter: brightness(1.06);
+}
+
+.ctrlButtonDanger:active:not(:disabled) {
+  background: var(--wrong-strong);
+  filter: brightness(0.94);
+}
+
+/* ---- Round icon buttons (menu, dark mode, close) ---- */
+.iconToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  font-size: 0;
+  color: var(--muted);
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.iconToggle:hover {
+  color: var(--accent);
+  border-color: var(--accent-soft-hover);
+}
+
+.iconToggle:active {
+  transform: scale(0.94);
+  background: var(--accent-soft);
+}
+
+/* ---- Current location pill ---- */
+.currentSetPill {
+  max-width: 100%;
+  min-height: 36px;
+  padding: 0 14px;
+  gap: 8px;
+  color: var(--text);
+  border: 1px solid var(--card-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.currentSetPill:hover {
+  border-color: var(--accent-soft-hover);
+}
+
+.currentSetPill:active {
+  transform: scale(0.98);
+}
+
+.currentSetPill .icon {
+  color: var(--muted);
+}
+
+.pillText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pillSep {
+  margin: 0 3px;
+  opacity: 0.7;
+}
+
+/* ---- Per-question edit ---- */
+.qEditBtn {
+  border: 1px solid var(--card-border);
+}
+
+.qEditBtn .icon {
+  color: var(--accent);
+}
+
+/* ---- Sidebar rows & breadcrumbs ---- */
+.sidebarItem {
+  border: 1px solid var(--card-border);
+  border-radius: 14px;
+  background: var(--choice-bg);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.sidebarItem:hover {
+  border-color: var(--accent-soft-hover);
+}
+
+.sidebarItemActive {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.sidebarItemMain {
+  background: transparent;
+  padding: 12px 14px;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sidebarItemMain:active {
+  background: var(--accent-soft);
+}
+
+.sidebarItemLabel {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-width: 0;
+}
+
+.labelIcon {
+  color: var(--accent);
+}
+
+.labelText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebarItemCount {
+  padding-left: 25px;
+}
+
+.sidebarDeleteBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  font-size: 0;
+  color: var(--muted);
+  background: transparent;
+  border-left: 1px solid var(--card-border);
+}
+
+.sidebarDeleteBtn:hover {
+  color: var(--wrong-strong);
+  background: var(--wrong-bg);
+}
+
+.sidebarDeleteBtn:active {
+  background: var(--wrong-bg);
+  transform: none;
+}
+
+.folderRow {
+  border-radius: 14px;
+}
+
+.crumbBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+}
+
+.crumbBtn:hover {
+  background: var(--accent-soft);
+}
+
+.crumbSep {
+  color: var(--muted);
+  opacity: 0.7;
+}
+
+/* ---- Mode tabs ---- */
+.modeTab {
+  border: 1px solid var(--card-border);
+}
+
+.modeTabActive {
+  color: var(--on-accent);
+}
+
+/* ---- Answer feedback icons ---- */
+.fbIcon {
+  margin: -2px 6px 0 0;
+}
+
+/* ---- Floating actions ---- */
+.fab {
+  position: fixed;
+  z-index: 40;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--card-border);
+  background: var(--card-bg);
+  color: var(--accent);
+  box-shadow: var(--shadow-md);
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.2s ease, transform 0.2s ease, filter 0.15s ease;
+}
+
+.fabMenu {
+  left: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  opacity: 0;
+  transform: translateY(14px) scale(0.9);
+  pointer-events: none;
+}
+
+.fabMenu.fabVisible {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.fabMenu.fabVisible:active {
+  transform: scale(0.93);
+}
+
+.fabJump {
+  right: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  height: 50px;
+  padding: 0 20px 0 16px;
+  border-radius: 999px;
+  background: var(--wrong-strong);
+  border-color: var(--wrong-strong);
+  color: #fff;
+  animation: fabIn 0.25s ease;
+}
+
+.fabJump:active {
+  transform: scale(0.95);
+  filter: brightness(0.94);
+}
+
+@keyframes fabIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Highlight the card you just jumped to */
+.card.flashCard {
+  animation: cardFlash 1.4s ease;
+}
+
+@keyframes cardFlash {
+  0%,
+  100% {
+    box-shadow: 0 2px 12px rgba(196, 68, 68, 0.1);
+  }
+  25%,
+  65% {
+    box-shadow: 0 0 0 4px rgba(217, 83, 79, 0.35), 0 2px 12px rgba(196, 68, 68, 0.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fab,
+  .fabJump,
+  .card.flashCard {
+    animation: none;
+    transition: none;
+  }
+}
