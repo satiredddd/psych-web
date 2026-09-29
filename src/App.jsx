@@ -58,14 +58,23 @@ function Icon({ name, size = 18, className = "" }) {
   );
 }
 
-function shuffledIndices(length) {
-  const arr = Array.from({ length }, (_, i) => i);
+const LETTERS = ["A", "B", "C", "D"];
+
+function shuffleArray(input) {
+  const arr = [...input];
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
 }
+
+function shuffledIndices(length) {
+  return shuffleArray(Array.from({ length }, (_, i) => i));
+}
+
+// "All of the above", "Both A and B", etc. break if reordered, so leave those alone.
+const ORDER_DEPENDENT = /\b(all|none|both|either)\b.*\b(above|these|choices)\b|\b[A-D]\s*(and|&|,|or)\s*[A-D]\b/i;
 
 // A questionnaire's stored text has no SET: lines, so parseQuestions always
 // hands back a single set — this just unwraps its question list.
@@ -124,6 +133,8 @@ export default function App() {
 
   const [answersByQ, setAnswersByQ] = useState({});
   const [orderByQ, setOrderByQ] = useState({});
+  // Per-question display order of choice letters, e.g. { [qKey]: { [originalIndex]: ["C","A","D","B"] } }
+  const [choiceOrderByQ, setChoiceOrderByQ] = useState({});
 
   const [darkMode, setDarkMode] = useState(() => {
     try {
@@ -242,6 +253,16 @@ export default function App() {
 
   const handleShuffle = () => {
     setOrderByQ((prev) => ({ ...prev, [qKey]: shuffledIndices(QUESTIONS.length) }));
+    setChoiceOrderByQ((prev) => ({
+      ...prev,
+      [qKey]: Object.fromEntries(
+        QUESTIONS.map((q, i) => {
+          const available = LETTERS.filter((l) => q.choices[l]);
+          const locked = available.some((l) => ORDER_DEPENDENT.test(q.choices[l]));
+          return [i, locked ? available : shuffleArray(available)];
+        })
+      ),
+    }));
     setAnswersByQ((prev) => ({ ...prev, [qKey]: {} }));
   };
 
@@ -458,6 +479,11 @@ export default function App() {
         const key = openRef.questionnaireId;
         setAnswersByQ((prev) => ({ ...prev, [key]: {} }));
         setOrderByQ((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        setChoiceOrderByQ((prev) => {
           const next = { ...prev };
           delete next[key];
           return next;
@@ -1031,6 +1057,16 @@ export default function App() {
             const isAnswered = Boolean(selected);
             const isCorrect = selected === q.correct;
 
+            // Displayed order of this question's choices (shuffled letters map back to originals).
+            const stored = choiceOrderByQ[qKey]?.[originalIndex];
+            const available = LETTERS.filter((l) => q.choices[l]);
+            // Fall back to default if the question was edited and the stored order is stale.
+            const choiceOrder =
+              stored && stored.length === available.length && stored.every((l) => available.includes(l))
+                ? stored
+                : available;
+            const labelOf = (letter) => LETTERS[choiceOrder.indexOf(letter)];
+
             return (
               <section
                 id={`q-${originalIndex}`}
@@ -1051,8 +1087,7 @@ export default function App() {
                 <p className="term">{q.term}</p>
 
                 <div className="choices">
-                  {["A", "B", "C", "D"].map((letter) => {
-                    if (!q.choices[letter]) return null;
+                  {choiceOrder.map((letter, pos) => {
                     const isThisCorrect = letter === q.correct;
                     const isThisSelected = letter === selected;
 
@@ -1070,7 +1105,7 @@ export default function App() {
                         onClick={() => handleSelect(originalIndex, letter)}
                         disabled={isAnswered}
                       >
-                        <span className="letter">{letter}</span>
+                        <span className="letter">{LETTERS[pos]}</span>
                         <span className="choiceText">{q.choices[letter]}</span>
                       </button>
                     );
@@ -1082,17 +1117,17 @@ export default function App() {
                     {isCorrect ? (
                       <p className="feedbackCorrect">
                         <Icon name="checkCircle" size={16} className="fbIcon" />
-                        Correct! <strong>{selected}</strong> — {q.explanations[selected]}
+                        Correct! <strong>{labelOf(selected)}</strong> — {q.explanations[selected]}
                       </p>
                     ) : (
                       <>
                         <p className="feedbackWrong">
                           <Icon name="xCircle" size={16} className="fbIcon" />
-                          <strong>Your answer: {selected}</strong> — {q.choices[selected]}
+                          <strong>Your answer: {labelOf(selected)}</strong> — {q.choices[selected]}
                         </p>
                         <p className="feedbackRight">
                           <Icon name="checkCircle" size={16} className="fbIcon" />
-                          <strong>Correct answer: {q.correct}</strong> — {q.choices[q.correct]}
+                          <strong>Correct answer: {labelOf(q.correct)}</strong> — {q.choices[q.correct]}
                         </p>
                         <p className="feedbackExplain">
                           <strong>Why:</strong> {q.explanations[q.correct]}
