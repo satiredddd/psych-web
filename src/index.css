@@ -419,7 +419,7 @@ body {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 50;
+  z-index: 70;
   padding: 0;
 }
 
