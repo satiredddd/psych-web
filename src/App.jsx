@@ -37,6 +37,8 @@ const ICONS = {
   checkCircle: (<><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></>),
   xCircle: (<><circle cx="12" cy="12" r="10" /><path d="m15 9-6 6" /><path d="m9 9 6 6" /></>),
   alertCircle: (<><circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" /></>),
+  check: (<path d="M20 6 9 17l-5-5" />),
+  merge: (<><path d="m8 6 4-4 4 4" /><path d="M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22" /><path d="m20 22-5-5" /></>),
 };
 
 function Icon({ name, size = 18, className = "" }) {
@@ -168,6 +170,20 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(null);
 
+  // Combine mode (sidebar): tick several questionnaires in a period and merge
+  // them into a brand-new one. The originals are left untouched.
+  const [combineMode, setCombineMode] = useState(false);
+  const [combineSelected, setCombineSelected] = useState([]);
+  const [showCombineModal, setShowCombineModal] = useState(false);
+  const [combineName, setCombineName] = useState("");
+
+  useEffect(() => {
+    if (!sidebarOpen) {
+      setCombineMode(false);
+      setCombineSelected([]);
+    }
+  }, [sidebarOpen]);
+
   // Floating buttons: show the menu button once you've scrolled past the header,
   // and cycle through wrong answers when the "review" button is tapped.
   const [scrolled, setScrolled] = useState(false);
@@ -234,6 +250,10 @@ export default function App() {
   const currentSubject = library?.subjects.find((s) => s.id === navSubjectId) || null;
   const currentPeriod = currentSubject?.periods.find((p) => p.name === navPeriod) || null;
 
+  // Selected questionnaires, kept in the same order they appear in the sidebar.
+  const combinePicked = (currentPeriod?.questionnaires || []).filter((q) => combineSelected.includes(q.id));
+  const combineQuestionTotal = combinePicked.reduce((sum, q) => sum + questionsIn(q.text).length, 0);
+
   const openSubject = library?.subjects.find((s) => s.id === openRef?.subjectId) || null;
   const openPeriod = openSubject?.periods.find((p) => p.name === openRef?.periodName) || null;
   const openQuestionnaire = openPeriod?.questionnaires.find((q) => q.id === openRef?.questionnaireId) || null;
@@ -274,14 +294,64 @@ export default function App() {
     setAnswersByQ((prev) => ({ ...prev, [qKey]: {} }));
   };
 
+  const exitCombine = () => {
+    setCombineMode(false);
+    setCombineSelected([]);
+  };
+
+  const toggleCombine = (id) =>
+    setCombineSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
   const openFolder = (subjectId, periodName) => {
+    exitCombine();
     setNavSubjectId(subjectId);
     setNavPeriod(periodName);
   };
 
   const goToRoot = () => {
+    exitCombine();
     setNavSubjectId(null);
     setNavPeriod(null);
+  };
+
+  const handleCombine = async (e) => {
+    e.preventDefault();
+    if (!combineName.trim()) {
+      setSaveError("Give the combined questionnaire a name.");
+      return;
+    }
+    const text = combinePicked
+      .map((q) => (q.text || "").trim())
+      .filter(Boolean)
+      .join("\n---\n");
+    if (combinePicked.length < 2 || !text) {
+      setSaveError("Pick at least two questionnaires that have questions.");
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const ref = await addDoc(collection(db, "questionnaires"), {
+        subjectId: currentSubject.id,
+        period: currentPeriod.name,
+        name: combineName.trim(),
+        text,
+        createdAt: Date.now(),
+      });
+      setOpenRef({
+        subjectId: currentSubject.id,
+        periodName: currentPeriod.name,
+        questionnaireId: ref.id,
+      });
+      setShowCombineModal(false);
+      setCombineName("");
+      exitCombine();
+      setSidebarOpen(false);
+    } catch (err) {
+      setSaveError(err.message || "Combine failed");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleAddSubject = async (e) => {
@@ -725,11 +795,28 @@ export default function App() {
                   currentPeriod.questionnaires.map((q) => (
                     <div
                       key={q.id}
-                      className={"sidebarItem" + (openRef?.questionnaireId === q.id ? " sidebarItemActive" : "")}
+                      className={
+                        "sidebarItem" +
+                        ((combineMode ? combineSelected.includes(q.id) : openRef?.questionnaireId === q.id)
+                          ? " sidebarItemActive"
+                          : "")
+                      }
                     >
+                      {combineMode && (
+                        <span
+                          className={"combineCheck" + (combineSelected.includes(q.id) ? " combineCheckOn" : "")}
+                          aria-hidden="true"
+                        >
+                          {combineSelected.includes(q.id) && <Icon name="check" size={14} />}
+                        </span>
+                      )}
                       <button
                         className="sidebarItemMain"
                         onClick={() => {
+                          if (combineMode) {
+                            toggleCombine(q.id);
+                            return;
+                          }
                           setOpenRef({
                             subjectId: currentSubject.id,
                             periodName: currentPeriod.name,
@@ -744,20 +831,22 @@ export default function App() {
                         </span>
                         <span className="sidebarItemCount">{questionsIn(q.text).length} question(s)</span>
                       </button>
-                      <button
-                        className="sidebarDeleteBtn"
-                        onClick={() =>
-                          setConfirmDeleteQuestionnaire({
-                            subjectId: currentSubject.id,
-                            periodName: currentPeriod.name,
-                            questionnaire: q,
-                          })
-                        }
-                        aria-label={`Delete ${q.name}`}
-                        title="Delete this questionnaire"
-                      >
-                        <Icon name="trash" size={17} />
-                      </button>
+                      {!combineMode && (
+                        <button
+                          className="sidebarDeleteBtn"
+                          onClick={() =>
+                            setConfirmDeleteQuestionnaire({
+                              subjectId: currentSubject.id,
+                              periodName: currentPeriod.name,
+                              questionnaire: q,
+                            })
+                          }
+                          aria-label={`Delete ${q.name}`}
+                          title="Delete this questionnaire"
+                        >
+                          <Icon name="trash" size={17} />
+                        </button>
+                      )}
                     </div>
                   ))
                 ))}
@@ -775,16 +864,73 @@ export default function App() {
                 New subject
               </button>
             )}
-            {currentPeriod && (
-              <button
-                className="ctrlButton sidebarAddBtn"
-                onClick={() => openCreateModal(currentSubject.id, currentPeriod.name)}
-              >
-                <Icon name="plus" size={17} />
-                New questionnaire
-              </button>
+            {currentPeriod && !combineMode && (
+              <div className="sidebarActions">
+                <button
+                  className="ctrlButton sidebarAddBtn"
+                  onClick={() => openCreateModal(currentSubject.id, currentPeriod.name)}
+                >
+                  <Icon name="plus" size={17} />
+                  New questionnaire
+                </button>
+                {currentPeriod.questionnaires.length >= 2 && (
+                  <button className="ctrlButton sidebarSecondaryBtn" onClick={() => setCombineMode(true)}>
+                    <Icon name="merge" size={17} />
+                    Combine
+                  </button>
+                )}
+              </div>
+            )}
+            {currentPeriod && combineMode && (
+              <div className="sidebarActions">
+                <button className="ctrlButton sidebarSecondaryBtn" onClick={exitCombine}>
+                  Cancel
+                </button>
+                <button
+                  className="ctrlButton sidebarAddBtn"
+                  disabled={combineSelected.length < 2}
+                  onClick={() => {
+                    setSaveError(null);
+                    setCombineName("");
+                    setShowCombineModal(true);
+                  }}
+                >
+                  <Icon name="merge" size={17} />
+                  Combine ({combineSelected.length})
+                </button>
+              </div>
             )}
           </aside>
+        </div>
+      )}
+
+      {showCombineModal && (
+        <div className="modalOverlay" onClick={() => !saving && setShowCombineModal(false)}>
+          <form className="modalCard" onClick={(e) => e.stopPropagation()} onSubmit={handleCombine}>
+            <h2>Combine questionnaires</h2>
+            <label>
+              New questionnaire name
+              <input
+                value={combineName}
+                onChange={(e) => setCombineName(e.target.value)}
+                placeholder="e.g. Midterm mega review"
+                autoFocus
+              />
+            </label>
+            <p className="bulkHint">
+              Merges {combinePicked.length} questionnaires ({combineQuestionTotal} questions) into a new one in{" "}
+              {currentSubject?.name} › {currentPeriod?.name}. The originals stay as they are.
+            </p>
+            {saveError && <p className="formError">{saveError}</p>}
+            <div className="modalActions">
+              <button type="button" className="ctrlButton" onClick={() => setShowCombineModal(false)} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving}>
+                {saving ? "Combining…" : "Create combined"}
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

@@ -1179,3 +1179,45 @@ body {
     transition: none;
   }
 }
+
+/* ---- Combine mode (append to the END of index.css) ---- */
+
+.sidebarActions {
+  display: flex;
+  gap: 8px;
+}
+
+.sidebarActions .ctrlButton {
+  flex: 1;
+  width: auto;
+}
+
+.sidebarSecondaryBtn {
+  min-height: 44px;
+  font-size: 0.9rem;
+}
+
+.combineCheck {
+  flex: 0 0 auto;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 12px;
+  border-radius: 7px;
+  border: 1.5px solid var(--choice-border);
+  background: var(--card-bg);
+  color: var(--on-accent);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.combineCheckOn {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.combineCheck + .sidebarItemMain {
+  padding-left: 10px;
+}
