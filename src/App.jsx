@@ -251,8 +251,12 @@ export default function App() {
     setAnswersByQ((prev) => ({ ...prev, [qKey]: { ...(prev[qKey] || {}), [originalIndex]: letter } }));
   };
 
-  const handleShuffle = () => {
+  const handleShuffleQuestions = () => {
     setOrderByQ((prev) => ({ ...prev, [qKey]: shuffledIndices(QUESTIONS.length) }));
+    setAnswersByQ((prev) => ({ ...prev, [qKey]: {} }));
+  };
+
+  const handleShuffleChoices = () => {
     setChoiceOrderByQ((prev) => ({
       ...prev,
       [qKey]: Object.fromEntries(
@@ -598,9 +602,13 @@ export default function App() {
           <div className="controlsRow">
             {QUESTIONS.length > 0 && (
               <>
-                <button className="ctrlButton" onClick={handleShuffle}>
+                <button className="ctrlButton" onClick={handleShuffleQuestions}>
                   <Icon name="shuffle" size={16} />
-                  Shuffle
+                  Shuffle questions
+                </button>
+                <button className="ctrlButton" onClick={handleShuffleChoices}>
+                  <Icon name="shuffle" size={16} />
+                  Shuffle choices
                 </button>
                 <button className="ctrlButton" onClick={handleReset} disabled={answeredCount === 0}>
                   <Icon name="reset" size={16} />
