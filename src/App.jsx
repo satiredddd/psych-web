@@ -148,6 +148,8 @@ export default function App() {
 
   const [showNewSubject, setShowNewSubject] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState("");
+  const [editSubject, setEditSubject] = useState(null); // subject being renamed
+  const [editSubjectName, setEditSubjectName] = useState("");
 
   // Unified "add questions" modal, used both to create a new questionnaire
   // file (modalTarget.type === "new") and to append more questions to the
@@ -371,6 +373,24 @@ export default function App() {
       setNewSubjectName("");
     } catch (err) {
       setSaveError(err.message || "Failed to add subject");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRenameSubject = async (e) => {
+    e.preventDefault();
+    if (!editSubjectName.trim()) {
+      setSaveError("Name is required.");
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await updateDoc(doc(db, "subjects", editSubject.id), { name: editSubjectName.trim() });
+      setEditSubject(null);
+    } catch (err) {
+      setSaveError(err.message || "Rename failed");
     } finally {
       setSaving(false);
     }
@@ -761,6 +781,18 @@ export default function App() {
                         </span>
                       </button>
                       <button
+                        className="sidebarDeleteBtn sidebarEditBtn"
+                        onClick={() => {
+                          setSaveError(null);
+                          setEditSubjectName(subject.name);
+                          setEditSubject(subject);
+                        }}
+                        aria-label={`Rename ${subject.name}`}
+                        title="Rename this subject"
+                      >
+                        <Icon name="pencil" size={16} />
+                      </button>
+                      <button
                         className="sidebarDeleteBtn"
                         onClick={() => setConfirmDeleteSubject(subject)}
                         aria-label={`Delete ${subject.name}`}
@@ -928,6 +960,27 @@ export default function App() {
               </button>
               <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving}>
                 {saving ? "Combining…" : "Create combined"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {editSubject && (
+        <div className="modalOverlay" onClick={() => !saving && setEditSubject(null)}>
+          <form className="modalCard" onClick={(e) => e.stopPropagation()} onSubmit={handleRenameSubject}>
+            <h2>Rename subject</h2>
+            <label>
+              Subject name
+              <input value={editSubjectName} onChange={(e) => setEditSubjectName(e.target.value)} autoFocus />
+            </label>
+            {saveError && <p className="formError">{saveError}</p>}
+            <div className="modalActions">
+              <button type="button" className="ctrlButton" onClick={() => setEditSubject(null)} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={saving}>
+                {saving ? "Saving…" : "Save"}
               </button>
             </div>
           </form>

@@ -1221,3 +1221,8 @@ body {
 .combineCheck + .sidebarItemMain {
   padding-left: 10px;
 }
+
+.sidebarEditBtn:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
