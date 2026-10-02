@@ -1204,7 +1204,7 @@ export default function App() {
             <p>Use "Add question" above to add some.</p>
           </div>
         ) : (
-          order.map((originalIndex, displayIndex) => {
+          order.map((originalIndex) => {
             const q = QUESTIONS[originalIndex];
             if (!q) return null; // guards against a stale shuffle order after edits
             const selected = answers[originalIndex];
@@ -1231,8 +1231,7 @@ export default function App() {
                 }
                 key={originalIndex}
               >
-                <div className="qHeader">
-                  <div className="qNumber">Question {displayIndex + 1}</div>
+                <div className="qHeader" style={{ justifyContent: "flex-end" }}>
                   <button className="qEditBtn" onClick={() => openQuestionEdit(originalIndex)}>
                     <Icon name="pencil" size={13} />
                     Edit
