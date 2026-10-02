@@ -1323,7 +1323,7 @@ export default function App() {
                     {isCorrect ? (
                       <p className="feedbackCorrect">
                         <Icon name="checkCircle" size={16} className="fbIcon" />
-                        Correct! <strong>{labelOf(selected)}</strong> — {q.explanations[selected]}
+                        Correct! <strong>{labelOf(selected)}</strong>
                       </p>
                     ) : (
                       <>
@@ -1335,10 +1335,14 @@ export default function App() {
                           <Icon name="checkCircle" size={16} className="fbIcon" />
                           <strong>Correct answer: {labelOf(q.correct)}</strong> — {q.choices[q.correct]}
                         </p>
-                        <p className="feedbackExplain">
-                          <strong>Why:</strong> {q.explanations[q.correct]}
-                        </p>
                       </>
+                    )}
+                    {choiceOrder.map((letter, pos) =>
+                      q.explanations[letter] ? (
+                        <p className="feedbackExplain" key={letter}>
+                          <strong>{LETTERS[pos]}:</strong> {q.explanations[letter]}
+                        </p>
+                      ) : null
                     )}
                   </div>
                 )}
