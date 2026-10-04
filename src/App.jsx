@@ -84,10 +84,10 @@ function questionsIn(text) {
   return parseQuestions(text || "")[0]?.questions || [];
 }
 
-// Splits stored text into its "---"-separated blocks (same rule as the parser).
+// Splits stored text into its dash-separated blocks ("-", "--" or "---"; same rule as the parser).
 function splitBlocks(text) {
   return (text || "")
-    .split(/^[ \t\r]*---[ \t\r]*$/m)
+    .split(/^[ \t\r]*-+[ \t\r]*$/m)
     .map((b) => b.trim())
     .filter(Boolean);
 }

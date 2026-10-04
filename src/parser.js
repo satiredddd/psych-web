@@ -14,7 +14,7 @@
  * EXPLAIN B: why B is right
  * EXPLAIN C: why C is wrong
  * EXPLAIN D: why D is wrong
- * ---
+ * -
  * TERM: Next question...
  * A) ...
  * B) ...
@@ -25,7 +25,7 @@
  * EXPLAIN B: ...
  * EXPLAIN C: ...
  * EXPLAIN D: ...
- * ---
+ * -
  * SET: Questions 81-130
  * TERM: ...
  * ------------------------------------------------------------
@@ -33,7 +33,8 @@
  * RULES:
  * - "SET: <label>" starts a new page/tab of questions. Everything after it
  *   belongs to that set, until the next "SET:" line or the end of the file.
- * - "---" on its own line ends one question and starts the next.
+ * - A line made only of dashes ("-", "--", or the old "---") ends one question
+ *   and starts the next.
  * - TERM / A) B) C) D) / EXPLAIN A-D can wrap onto multiple lines — just keep
  *   typing on the next line without a new marker, and it gets joined on.
  * - Blank lines are ignored, so you can space things out however you like.
@@ -137,14 +138,15 @@ export function parseQuestions(rawText) {
       continue;
     }
 
-    if (line === "---") {
+    // A line of only dashes ("-", "--", "---") separates questions.
+    if (/^-+$/.test(line)) {
       flushBlock();
       continue;
     }
 
     block.push(rawLine);
   }
-  flushBlock(); // catch a trailing block with no final "---"
+  flushBlock(); // catch a trailing block with no final separator
 
   return sets;
 }
