@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addDoc,
   collection,
-  deleteDoc,
   doc,
+  getDoc,
   getDocs,
+  limit,
   onSnapshot,
+  orderBy,
   query,
   runTransaction,
   updateDoc,
@@ -102,6 +104,29 @@ function validBlockPositions(blocks) {
   return positions;
 }
 
+// Saves a snapshot of a questionnaire into its "versions" subcollection so any
+// edit can be rolled back later. Call this inside a transaction BEFORE updating.
+function pushVersion(tx, ref, data, reason) {
+  tx.set(doc(collection(ref, "versions")), {
+    name: data.name || "",
+    text: data.text || "",
+    savedAt: Date.now(),
+    reason,
+  });
+}
+
+// Fire-and-forget entry in the shared activity feed (sidebar > Activity history).
+function logActivity(entry) {
+  return addDoc(collection(db, "activity"), { ...entry, createdAt: Date.now() }).catch((e) =>
+    console.warn("Couldn't log activity", e)
+  );
+}
+
+// Keep stored snapshots comfortably under Firestore's 1 MB document limit.
+const MAX_SNAPSHOT_CHARS = 800000;
+
+const ACTION_LABEL = { added: "Added", edited: "Edited", deleted: "Deleted", restored: "Restored" };
+
 const emptyForm = {
   term: "",
   a: "",
@@ -179,6 +204,34 @@ export default function App() {
   const [showCombineModal, setShowCombineModal] = useState(false);
   const [combineName, setCombineName] = useState("");
 
+  // Version history (undo) for the open questionnaire.
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyItems, setHistoryItems] = useState(null); // null = loading
+  const [historyError, setHistoryError] = useState(null);
+  const [confirmRestoreId, setConfirmRestoreId] = useState(null);
+
+  // Activity feed (sidebar): every add / edit / delete, newest first.
+  const [showActivity, setShowActivity] = useState(false);
+  const [activityItems, setActivityItems] = useState(null); // null = loading
+  const [activityError, setActivityError] = useState(null);
+  const [confirmActId, setConfirmActId] = useState(null);
+
+  useEffect(() => {
+    if (!showActivity) return undefined;
+    setActivityItems(null);
+    setActivityError(null);
+    setConfirmActId(null);
+    const unsub = onSnapshot(
+      query(collection(db, "activity"), orderBy("createdAt", "desc"), limit(100)),
+      (snap) => setActivityItems(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (err) => {
+        setActivityError(err.message || "Couldn't load activity");
+        setActivityItems([]);
+      }
+    );
+    return unsub;
+  }, [showActivity]);
+
   useEffect(() => {
     if (!sidebarOpen) {
       setCombineMode(false);
@@ -251,6 +304,9 @@ export default function App() {
 
   const currentSubject = library?.subjects.find((s) => s.id === navSubjectId) || null;
   const currentPeriod = currentSubject?.periods.find((p) => p.name === navPeriod) || null;
+
+  const subjectNameOf = (id) => subjectsRaw?.find((s) => s.id === id)?.name || "";
+  const pathOf = (subjectId, periodName) => `${subjectNameOf(subjectId)} › ${periodName}`;
 
   // Selected questionnaires, kept in the same order they appear in the sidebar.
   const combinePicked = (currentPeriod?.questionnaires || []).filter((q) => combineSelected.includes(q.id));
@@ -340,6 +396,12 @@ export default function App() {
         text,
         createdAt: Date.now(),
       });
+      logActivity({
+        action: "added",
+        target: "questionnaire",
+        message: `Combined ${combinePicked.map((q) => `"${q.name}"`).join(", ")} into "${combineName.trim()}"`,
+        path: pathOf(currentSubject.id, currentPeriod.name),
+      });
       setOpenRef({
         subjectId: currentSubject.id,
         periodName: currentPeriod.name,
@@ -369,10 +431,123 @@ export default function App() {
         name: newSubjectName.trim(),
         createdAt: Date.now(),
       });
+      logActivity({
+        action: "added",
+        target: "subject",
+        message: `Added subject "${newSubjectName.trim()}"`,
+      });
       setShowNewSubject(false);
       setNewSubjectName("");
     } catch (err) {
       setSaveError(err.message || "Failed to add subject");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clearQuizState = (key) => {
+    setAnswersByQ((prev) => ({ ...prev, [key]: {} }));
+    setOrderByQ((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setChoiceOrderByQ((prev) => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const openHistory = async () => {
+    if (!openRef) return;
+    setShowHistory(true);
+    setHistoryItems(null);
+    setHistoryError(null);
+    setConfirmRestoreId(null);
+    try {
+      const snap = await getDocs(collection(db, "questionnaires", openRef.questionnaireId, "versions"));
+      setHistoryItems(
+        snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0))
+      );
+    } catch (err) {
+      setHistoryError(err.message || "Couldn't load history");
+      setHistoryItems([]);
+    }
+  };
+
+  const handleRestore = async (version) => {
+    if (!openRef) return;
+    const key = openRef.questionnaireId;
+    const ref = doc(db, "questionnaires", key);
+    setSaving(true);
+    setHistoryError(null);
+    try {
+      await runTransaction(db, async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists()) throw new Error("This questionnaire no longer exists.");
+        // Snapshot what's there now, so the restore itself can be undone too.
+        pushVersion(tx, ref, snap.data(), "Before restore");
+        tx.update(ref, { name: version.name, text: version.text });
+      });
+      logActivity({
+        action: "restored",
+        target: "questionnaire",
+        message: `Restored an older version of "${version.name}"`,
+        path: pathOf(openRef.subjectId, openRef.periodName),
+      });
+      clearQuizState(key);
+      setConfirmRestoreId(null);
+      setShowHistory(false);
+    } catch (err) {
+      setHistoryError(err.message || "Restore failed");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRestoreActivity = async (item) => {
+    setSaving(true);
+    setActivityError(null);
+    try {
+      const snapDoc = await getDoc(doc(db, "deletedItems", item.id));
+      if (!snapDoc.exists()) throw new Error("Nothing was saved for this one, so it can't be restored.");
+      const data = snapDoc.data();
+      const batch = writeBatch(db);
+      let message;
+
+      if (data.kind === "questionnaire") {
+        if (!subjectsRaw?.some((s) => s.id === data.subjectId)) {
+          throw new Error("Its subject no longer exists. Restore the subject first.");
+        }
+        batch.set(doc(collection(db, "questionnaires")), {
+          subjectId: data.subjectId,
+          period: data.period,
+          name: data.name,
+          text: data.text,
+          createdAt: data.createdAt || Date.now(),
+        });
+        message = `Restored questionnaire "${data.name}"`;
+      } else {
+        const newSubjectRef = doc(collection(db, "subjects"));
+        batch.set(newSubjectRef, { name: data.subject.name, createdAt: data.subject.createdAt || Date.now() });
+        (data.questionnaires || []).forEach((q) => {
+          batch.set(doc(collection(db, "questionnaires")), { ...q, subjectId: newSubjectRef.id });
+        });
+        message = `Restored subject "${data.subject.name}" with ${(data.questionnaires || []).length} questionnaire(s)`;
+      }
+
+      batch.update(doc(db, "activity", item.id), { restored: true });
+      batch.set(doc(collection(db, "activity")), {
+        action: "restored",
+        target: data.kind,
+        message,
+        createdAt: Date.now(),
+      });
+      await batch.commit();
+      setConfirmActId(null);
+    } catch (err) {
+      setActivityError(err.message || "Restore failed");
     } finally {
       setSaving(false);
     }
@@ -388,6 +563,13 @@ export default function App() {
     setSaveError(null);
     try {
       await updateDoc(doc(db, "subjects", editSubject.id), { name: editSubjectName.trim() });
+      if (editSubject.name !== editSubjectName.trim()) {
+        logActivity({
+          action: "edited",
+          target: "subject",
+          message: `Renamed subject "${editSubject.name}" → "${editSubjectName.trim()}"`,
+        });
+      }
       setEditSubject(null);
     } catch (err) {
       setSaveError(err.message || "Rename failed");
@@ -402,6 +584,31 @@ export default function App() {
       // Delete the subject and every questionnaire inside it in one batch.
       const snap = await getDocs(query(collection(db, "questionnaires"), where("subjectId", "==", subject.id)));
       const batch = writeBatch(db);
+
+      // Keep a copy of everything being deleted so it can be restored from Activity history.
+      const snapshot = {
+        kind: "subject",
+        subject: {
+          name: subject.name,
+          createdAt: subjectsRaw?.find((s) => s.id === subject.id)?.createdAt || Date.now(),
+        },
+        questionnaires: snap.docs.map((d) => {
+          const { subjectId, ...rest } = d.data();
+          return rest;
+        }),
+      };
+      const canRestore = JSON.stringify(snapshot).length < MAX_SNAPSHOT_CHARS;
+      const actRef = doc(collection(db, "activity"));
+      batch.set(actRef, {
+        action: "deleted",
+        target: "subject",
+        message: `Deleted subject "${subject.name}" and its ${snap.size} questionnaire(s)`,
+        hasSnapshot: canRestore,
+        restored: false,
+        createdAt: Date.now(),
+      });
+      if (canRestore) batch.set(doc(db, "deletedItems", actRef.id), snapshot);
+
       snap.docs.forEach((d) => batch.delete(d.ref));
       batch.delete(doc(db, "subjects", subject.id));
       await batch.commit();
@@ -419,7 +626,29 @@ export default function App() {
   const handleDeleteQuestionnaire = async ({ questionnaire }) => {
     setSaving(true);
     try {
-      await deleteDoc(doc(db, "questionnaires", questionnaire.id));
+      const batch = writeBatch(db);
+      const snapshot = {
+        kind: "questionnaire",
+        subjectId: questionnaire.subjectId,
+        period: questionnaire.period,
+        name: questionnaire.name,
+        text: questionnaire.text || "",
+        createdAt: questionnaire.createdAt || Date.now(),
+      };
+      const canRestore = JSON.stringify(snapshot).length < MAX_SNAPSHOT_CHARS;
+      const actRef = doc(collection(db, "activity"));
+      batch.set(actRef, {
+        action: "deleted",
+        target: "questionnaire",
+        message: `Deleted questionnaire "${questionnaire.name}"`,
+        path: pathOf(questionnaire.subjectId, questionnaire.period),
+        hasSnapshot: canRestore,
+        restored: false,
+        createdAt: Date.now(),
+      });
+      if (canRestore) batch.set(doc(db, "deletedItems", actRef.id), snapshot);
+      batch.delete(doc(db, "questionnaires", questionnaire.id));
+      await batch.commit();
       if (openRef?.questionnaireId === questionnaire.id) setOpenRef(null);
       setConfirmDeleteQuestionnaire(null);
     } catch (err) {
@@ -504,6 +733,12 @@ export default function App() {
           text: block,
           createdAt: Date.now(),
         });
+        logActivity({
+          action: "added",
+          target: "questionnaire",
+          message: `Created questionnaire "${qFormName.trim()}" with ${addMode === "single" ? 1 : detectedCount} question(s)`,
+          path: pathOf(modalTarget.subjectId, modalTarget.periodName),
+        });
         setOpenRef({
           subjectId: modalTarget.subjectId,
           periodName: modalTarget.periodName,
@@ -517,7 +752,14 @@ export default function App() {
           const snap = await tx.get(ref);
           if (!snap.exists()) throw new Error("This questionnaire no longer exists.");
           const existing = (snap.data().text || "").trim();
+          if (existing) pushVersion(tx, ref, snap.data(), "Added questions");
           tx.update(ref, { text: existing ? existing + "\n---\n" + block : block });
+        });
+        logActivity({
+          action: "added",
+          target: "question",
+          message: `Added ${addMode === "single" ? 1 : detectedCount} question(s) to "${openQuestionnaire?.name || ""}"`,
+          path: pathOf(modalTarget.subjectId, modalTarget.periodName),
         });
       }
       setModalTarget(null);
@@ -568,7 +810,30 @@ export default function App() {
         if (/^SET:/im.test(editText)) {
           throw new Error('Remove any "SET:" lines — they\'re not used anymore.');
         }
-        await updateDoc(ref, { name: editName.trim(), text: editText.trim() });
+        const newName = editName.trim();
+        const newText = editText.trim();
+        await runTransaction(db, async (tx) => {
+          const snap = await tx.get(ref);
+          if (!snap.exists()) throw new Error("This questionnaire no longer exists.");
+          const old = snap.data();
+          if ((old.text || "") !== newText || old.name !== newName) {
+            pushVersion(tx, ref, old, "Edited text");
+          }
+          tx.update(ref, { name: newName, text: newText });
+        });
+        const renamed = openQuestionnaire && openQuestionnaire.name !== newName;
+        const retexted = openQuestionnaire && (openQuestionnaire.text || "") !== newText;
+        if (renamed || retexted) {
+          const parts = [];
+          if (renamed) parts.push(`Renamed "${openQuestionnaire.name}" → "${newName}"`);
+          if (retexted) parts.push(`Edited the text of "${newName}"`);
+          logActivity({
+            action: "edited",
+            target: "questionnaire",
+            message: parts.join(" and "),
+            path: pathOf(openRef.subjectId, openRef.periodName),
+          });
+        }
         // Question positions may have changed, so clear answers and any shuffle.
         const key = openRef.questionnaireId;
         setAnswersByQ((prev) => ({ ...prev, [key]: {} }));
@@ -594,8 +859,16 @@ export default function App() {
           if (pos === undefined || questionsIn(blocks[pos])[0]?.term !== editTarget.term) {
             throw new Error("This question was changed elsewhere. Close this and try again.");
           }
+          pushVersion(tx, ref, snap.data(), "Edited a question");
           blocks[pos] = block;
           tx.update(ref, { text: blocks.join("\n---\n") });
+        });
+        const termPreview = editTarget.term.length > 50 ? editTarget.term.slice(0, 50) + "…" : editTarget.term;
+        logActivity({
+          action: "edited",
+          target: "question",
+          message: `Edited question "${termPreview}" in "${openQuestionnaire?.name || ""}"`,
+          path: pathOf(openRef.subjectId, openRef.periodName),
         });
       }
       setEditTarget(null);
@@ -657,7 +930,7 @@ export default function App() {
           <button className="iconToggle" onClick={() => setSidebarOpen(true)} aria-label="Open library" title="Library">
             <Icon name="menu" size={20} />
           </button>
-          <h1>Quiz for my cutie wifey katkat</h1>
+          <h1>Quiz for my wifies 📖</h1>
           <button
             className="iconToggle"
             onClick={() => setDarkMode((d) => !d)}
@@ -713,6 +986,10 @@ export default function App() {
             <button className="ctrlButton" onClick={openRawEdit}>
               <Icon name="pencil" size={15} />
               Edit text
+            </button>
+            <button className="ctrlButton" onClick={openHistory}>
+              <Icon name="reset" size={16} />
+              Versions
             </button>
           </div>
         )}
@@ -932,7 +1209,124 @@ export default function App() {
                 </button>
               </div>
             )}
+
+            <button
+              className="ctrlButton sidebarSecondaryBtn"
+              style={{ width: "100%" }}
+              onClick={() => setShowActivity(true)}
+            >
+              <Icon name="reset" size={17} />
+              Activity history
+            </button>
           </aside>
+        </div>
+      )}
+
+      {showActivity && (
+        <div className="modalOverlay" onClick={() => !saving && setShowActivity(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h2>Activity history</h2>
+            <p className="bulkHint">
+              Everything added, edited or deleted, newest first (last 100). Deleted subjects and questionnaires can be
+              restored.
+            </p>
+            {activityError && <p className="formError">{activityError}</p>}
+            {activityItems === null ? (
+              <p className="bulkHint">Loading…</p>
+            ) : activityItems.length === 0 ? (
+              <p className="bulkHint">Nothing yet. Changes you make will show up here.</p>
+            ) : (
+              <div className="historyList">
+                {activityItems.map((a) => (
+                  <div className="historyItem" key={a.id}>
+                    <div className="historyInfo">
+                      <div className="actRow">
+                        <span className={"actBadge act-" + a.action}>{ACTION_LABEL[a.action] || a.action}</span>
+                        <span className="actMessage">{a.message}</span>
+                      </div>
+                      <div className="historyMeta">
+                        {a.path ? a.path + " · " : ""}
+                        {new Date(a.createdAt || 0).toLocaleString()}
+                        {a.action === "deleted" && !a.hasSnapshot && " · can't be restored"}
+                        {a.restored && " · restored"}
+                      </div>
+                    </div>
+                    {a.action === "deleted" &&
+                      a.hasSnapshot &&
+                      !a.restored &&
+                      (confirmActId === a.id ? (
+                        <button
+                          className="ctrlButton ctrlButtonPrimary"
+                          onClick={() => handleRestoreActivity(a)}
+                          disabled={saving}
+                        >
+                          {saving ? "Restoring…" : "Confirm"}
+                        </button>
+                      ) : (
+                        <button className="ctrlButton" onClick={() => setConfirmActId(a.id)} disabled={saving}>
+                          Restore
+                        </button>
+                      ))}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="modalActions">
+              <button className="ctrlButton" onClick={() => setShowActivity(false)} disabled={saving}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHistory && (
+        <div className="modalOverlay" onClick={() => !saving && setShowHistory(false)}>
+          <div className="modalCard" onClick={(e) => e.stopPropagation()}>
+            <h2>Version history</h2>
+            <p className="bulkHint">
+              Every edit saves the previous version first. Restoring also saves what's there now, so you can undo a
+              restore too.
+            </p>
+            {historyError && <p className="formError">{historyError}</p>}
+            {historyItems === null ? (
+              <p className="bulkHint">Loading…</p>
+            ) : historyItems.length === 0 ? (
+              <p className="bulkHint">No saved versions yet. They appear after your next edit.</p>
+            ) : (
+              <div className="historyList">
+                {historyItems.map((v) => (
+                  <div className="historyItem" key={v.id}>
+                    <div className="historyInfo">
+                      <div className="historyName">{v.name || "(no name)"}</div>
+                      <div className="historyMeta">
+                        {new Date(v.savedAt || 0).toLocaleString()} · {questionsIn(v.text).length} question(s) ·{" "}
+                        {v.reason}
+                      </div>
+                    </div>
+                    {confirmRestoreId === v.id ? (
+                      <button
+                        className="ctrlButton ctrlButtonPrimary"
+                        onClick={() => handleRestore(v)}
+                        disabled={saving}
+                      >
+                        {saving ? "Restoring…" : "Confirm"}
+                      </button>
+                    ) : (
+                      <button className="ctrlButton" onClick={() => setConfirmRestoreId(v.id)} disabled={saving}>
+                        Restore
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="modalActions">
+              <button className="ctrlButton" onClick={() => setShowHistory(false)} disabled={saving}>
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
