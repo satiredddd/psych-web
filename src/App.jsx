@@ -963,22 +963,6 @@ export default function App() {
 
         {openQuestionnaire && (
           <div className="controlsRow">
-            {QUESTIONS.length > 0 && (
-              <>
-                <button className="ctrlButton" onClick={handleShuffleQuestions}>
-                  <Icon name="shuffle" size={16} />
-                  Shuffle questions
-                </button>
-                <button className="ctrlButton" onClick={handleShuffleChoices}>
-                  <Icon name="shuffle" size={16} />
-                  Shuffle choices
-                </button>
-                <button className="ctrlButton" onClick={handleReset} disabled={answeredCount === 0}>
-                  <Icon name="reset" size={16} />
-                  Reset
-                </button>
-              </>
-            )}
             <button className="ctrlButton" onClick={openAppendModal}>
               <Icon name="plus" size={16} />
               Add question
@@ -1008,6 +992,23 @@ export default function App() {
         {QUESTIONS.length > 0 && answeredCount > 0 && (
           <div className="scoreBar">
             Score: <strong>{correctCount}</strong> / {answeredCount} answered
+          </div>
+        )}
+
+        {QUESTIONS.length > 0 && (
+          <div className="controlsRow" style={{ marginTop: 14, marginBottom: 0 }}>
+            <button className="ctrlButton" onClick={handleShuffleQuestions}>
+              <Icon name="shuffle" size={16} />
+              Shuffle questions
+            </button>
+            <button className="ctrlButton" onClick={handleShuffleChoices}>
+              <Icon name="shuffle" size={16} />
+              Shuffle choices
+            </button>
+            <button className="ctrlButton" onClick={handleReset} disabled={answeredCount === 0}>
+              <Icon name="reset" size={16} />
+              Reset
+            </button>
           </div>
         )}
       </header>
