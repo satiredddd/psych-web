@@ -128,6 +128,7 @@ const MAX_SNAPSHOT_CHARS = 800000;
 const ACTION_LABEL = { added: "Added", edited: "Edited", deleted: "Deleted", restored: "Restored" };
 
 const emptyForm = {
+  title: "",
   term: "",
   a: "",
   b: "",
@@ -681,6 +682,7 @@ export default function App() {
   const buildSingleBlock = () => {
     if (!form.term.trim() || !form.a.trim() || !form.b.trim()) return null;
     return [
+      form.title.trim() && `TITLE: ${form.title.trim()}`,
       `TERM: ${form.term.trim()}`,
       `A) ${form.a.trim()}`,
       form.b.trim() && `B) ${form.b.trim()}`,
@@ -782,6 +784,7 @@ export default function App() {
     const q = QUESTIONS[index];
     if (!q) return;
     setForm({
+      title: q.title || "",
       term: q.term,
       a: q.choices.A,
       b: q.choices.B,
@@ -1449,6 +1452,10 @@ export default function App() {
               {addMode === "single" ? (
                 <>
                   <label>
+                    Title / topic (optional)
+                    <input value={form.title} onChange={(e) => updateField("title", e.target.value)} />
+                  </label>
+                  <label>
                     Term / question
                     <textarea value={form.term} onChange={(e) => updateField("term", e.target.value)} rows={2} />
                   </label>
@@ -1486,7 +1493,7 @@ export default function App() {
                       onChange={(e) => setBulkText(e.target.value)}
                       rows={12}
                       placeholder={
-                        "TERM: What does X mean?\nA) Choice one\nB) Choice two\nC) Choice three\nD) Choice four\nANSWER: B\nEXPLAIN A: ...\nEXPLAIN B: ...\nEXPLAIN C: ...\nEXPLAIN D: ...\n---\nTERM: Next question...\n..."
+                        "TITLE: Optional topic, e.g. Germ cell development\nTERM: What does X mean?\nA) Choice one\nB) Choice two\nC) Choice three\nD) Choice four\nANSWER: B\nEXPLAIN A: ...\nEXPLAIN B: ...\nEXPLAIN C: ...\nEXPLAIN D: ...\n---\nTERM: Next question...\n..."
                       }
                     />
                   </label>
@@ -1546,6 +1553,10 @@ export default function App() {
                 </>
               ) : (
                 <>
+                  <label>
+                    Title / topic (optional)
+                    <input value={form.title} onChange={(e) => updateField("title", e.target.value)} />
+                  </label>
                   <label>
                     Term / question
                     <textarea value={form.term} onChange={(e) => updateField("term", e.target.value)} rows={2} />
@@ -1679,7 +1690,8 @@ export default function App() {
                 }
                 key={originalIndex}
               >
-                <div className="qHeader" style={{ justifyContent: "flex-end" }}>
+                <div className="qHeader" style={{ justifyContent: q.title ? "space-between" : "flex-end" }}>
+                  {q.title && <div className="qNumber">{q.title}</div>}
                   <button className="qEditBtn" onClick={() => openQuestionEdit(originalIndex)}>
                     <Icon name="pencil" size={13} />
                     Edit

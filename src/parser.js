@@ -4,6 +4,7 @@
  * FORMAT YOU WRITE IN (questions.txt):
  * ------------------------------------------------------------
  * SET: Questions 1-80
+ * TITLE: Germ cell development      <- optional topic label shown above the question
  * TERM: What does X mean?
  * A) Choice one
  * B) Choice two
@@ -31,6 +32,9 @@
  * ------------------------------------------------------------
  *
  * RULES:
+ * - "TITLE: <text>" is optional. Put it right before TERM and it shows above
+ *   that question (handy for "which part of the PDF is this from"). Questions
+ *   without a TITLE line work exactly as before.
  * - "SET: <label>" starts a new page/tab of questions. Everything after it
  *   belongs to that set, until the next "SET:" line or the end of the file.
  * - A line made only of dashes ("-", "--", or the old "---") ends one question
@@ -45,6 +49,7 @@
 
 function parseBlock(lines, blockNumberForWarning) {
   const q = {
+    title: "",
     term: "",
     choices: { A: "", B: "", C: "", D: "" },
     correct: "",
@@ -56,12 +61,16 @@ function parseBlock(lines, blockNumberForWarning) {
   for (const rawLine of lines) {
     const line = rawLine;
 
+    const titleMatch = line.match(/^TITLE:\s*(.*)$/i);
     const termMatch = line.match(/^TERM:\s*(.*)$/i);
     const choiceMatch = line.match(/^([A-D])\)\s*(.*)$/i);
     const answerMatch = line.match(/^ANSWER:\s*([A-D])/i);
     const explainMatch = line.match(/^EXPLAIN\s*([A-D]):\s*(.*)$/i);
 
-    if (termMatch) {
+    if (titleMatch) {
+      current = { type: "title" };
+      q.title = titleMatch[1].trim();
+    } else if (termMatch) {
       current = { type: "term" };
       q.term = termMatch[1].trim();
     } else if (choiceMatch) {
@@ -78,7 +87,9 @@ function parseBlock(lines, blockNumberForWarning) {
     } else if (line.trim() !== "") {
       // continuation of whatever field we were last filling in
       const text = line.trim();
-      if (current?.type === "term") {
+      if (current?.type === "title") {
+        q.title = q.title ? q.title + " " + text : text;
+      } else if (current?.type === "term") {
         q.term = q.term ? q.term + " " + text : text;
       } else if (current?.type === "choice") {
         q.choices[current.letter] = q.choices[current.letter]
