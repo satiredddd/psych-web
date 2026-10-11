@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addDoc,
   collection,
@@ -20,6 +20,11 @@ import { db } from "./firebase";
 
 const PERIODS = ["Prelim", "Midterm", "Finals"];
 
+// Edit lock. CHANGE THIS PIN. Note it's checked in the browser, so it keeps
+// casual changes out but isn't real security (see Firestore rules for that).
+const EDIT_PIN = "1234";
+const UNLOCK_MS = 5 * 60 * 1000; // stays unlocked for 5 minutes
+
 // Clean stroke icons (Lucide-style), drawn inline so they inherit text color.
 const ICONS = {
   menu: (<><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></>),
@@ -40,6 +45,8 @@ const ICONS = {
   xCircle: (<><circle cx="12" cy="12" r="10" /><path d="m15 9-6 6" /><path d="m9 9 6 6" /></>),
   alertCircle: (<><circle cx="12" cy="12" r="10" /><path d="M12 8v4" /><path d="M12 16h.01" /></>),
   check: (<path d="M20 6 9 17l-5-5" />),
+  lock: (<><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></>),
+  unlock: (<><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 9.9-1" /></>),
   merge: (<><path d="m8 6 4-4 4 4" /><path d="M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22" /><path d="m20 22-5-5" /></>),
 };
 
@@ -233,6 +240,82 @@ export default function App() {
     return unsub;
   }, [showActivity]);
 
+  // ---- Edit lock (PIN) ----
+  // unlockRef is what the logic checks (never stale); unlockedUntil just drives the icon.
+  const unlockRef = useRef(0);
+  const pendingRef = useRef(null);
+  const [unlockedUntil, setUnlockedUntil] = useState(0);
+  const [showPin, setShowPin] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState(null);
+
+  const setUnlock = (until) => {
+    unlockRef.current = until;
+    setUnlockedUntil(until);
+  };
+
+  // Auto-lock when time runs out (and re-check when the tab wakes up).
+  useEffect(() => {
+    if (!unlockedUntil) return undefined;
+    const check = () => {
+      if (unlockRef.current <= Date.now()) setUnlock(0);
+    };
+    const t = setTimeout(check, Math.max(unlockedUntil - Date.now(), 0) + 50);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [unlockedUntil]);
+
+  const isUnlocked = () => unlockRef.current > Date.now();
+
+  const requestUnlock = (action) => {
+    pendingRef.current = action || null;
+    setPinInput("");
+    setPinError(null);
+    setShowPin(true);
+  };
+
+  // Wrap any edit/add/delete handler: runs now if unlocked, otherwise asks for the PIN first
+  // and runs it right after a correct PIN.
+  const guard =
+    (fn) =>
+    (...args) => {
+      if (isUnlocked()) return fn(...args);
+      requestUnlock(() => fn(...args));
+      return undefined;
+    };
+
+  // For form submits: returns true (and asks for the PIN) if the lock expired mid-edit.
+  const needsUnlock = (retry) => {
+    if (isUnlocked()) return false;
+    requestUnlock(retry);
+    return true;
+  };
+
+  const handlePinSubmit = (e) => {
+    e.preventDefault();
+    if (pinInput === EDIT_PIN) {
+      setUnlock(Date.now() + UNLOCK_MS);
+      setShowPin(false);
+      setPinInput("");
+      const action = pendingRef.current;
+      pendingRef.current = null;
+      if (action) action();
+    } else {
+      setPinError("Wrong PIN. Try again.");
+      setPinInput("");
+    }
+  };
+
+  const cancelPin = () => {
+    pendingRef.current = null;
+    setShowPin(false);
+    setPinInput("");
+    setPinError(null);
+  };
+
   useEffect(() => {
     if (!sidebarOpen) {
       setCombineMode(false);
@@ -375,6 +458,7 @@ export default function App() {
 
   const handleCombine = async (e) => {
     e.preventDefault();
+    if (needsUnlock(() => handleCombine(e))) return;
     if (!combineName.trim()) {
       setSaveError("Give the combined questionnaire a name.");
       return;
@@ -421,6 +505,7 @@ export default function App() {
 
   const handleAddSubject = async (e) => {
     e.preventDefault();
+    if (needsUnlock(() => handleAddSubject(e))) return;
     if (!newSubjectName.trim()) {
       setSaveError("Name is required.");
       return;
@@ -556,6 +641,7 @@ export default function App() {
 
   const handleRenameSubject = async (e) => {
     e.preventDefault();
+    if (needsUnlock(() => handleRenameSubject(e))) return;
     if (!editSubjectName.trim()) {
       setSaveError("Name is required.");
       return;
@@ -700,6 +786,7 @@ export default function App() {
 
   const handleModalSubmit = async (e) => {
     e.preventDefault();
+    if (needsUnlock(() => handleModalSubmit(e))) return;
     if (modalTarget.type === "new" && !qFormName.trim()) {
       setSaveError("Give this questionnaire a name.");
       return;
@@ -802,6 +889,7 @@ export default function App() {
 
   const handleEditSubmit = async (e) => {
     e.preventDefault();
+    if (needsUnlock(() => handleEditSubmit(e))) return;
     if (!openRef) return;
     const ref = doc(db, "questionnaires", openRef.questionnaireId);
 
@@ -933,15 +1021,26 @@ export default function App() {
           <button className="iconToggle" onClick={() => setSidebarOpen(true)} aria-label="Open library" title="Library">
             <Icon name="menu" size={20} />
           </button>
-          <h1>Quiz for my wifey katkat</h1>
-          <button
-            className="iconToggle"
-            onClick={() => setDarkMode((d) => !d)}
-            aria-label="Toggle dark mode"
-            title="Toggle dark mode"
-          >
-            <Icon name={darkMode ? "sun" : "moon"} size={19} />
-          </button>
+          <h1>Quiz for my wifies 📖</h1>
+          <div style={{ display: "flex", gap: 8, flex: "0 0 auto" }}>
+            <button
+              className="iconToggle"
+              onClick={() => (unlockedUntil ? setUnlock(0) : requestUnlock(null))}
+              aria-label={unlockedUntil ? "Unlocked. Tap to lock" : "Locked. Tap to unlock"}
+              title={unlockedUntil ? "Unlocked (tap to lock now)" : "Locked (tap to unlock editing)"}
+              style={unlockedUntil ? { color: "var(--accent)", borderColor: "var(--accent)" } : undefined}
+            >
+              <Icon name={unlockedUntil ? "unlock" : "lock"} size={18} />
+            </button>
+            <button
+              className="iconToggle"
+              onClick={() => setDarkMode((d) => !d)}
+              aria-label="Toggle dark mode"
+              title="Toggle dark mode"
+            >
+              <Icon name={darkMode ? "sun" : "moon"} size={19} />
+            </button>
+          </div>
         </div>
         <p className="subtitle">Goodluck minamahal kong napakaganda</p>
 
@@ -966,11 +1065,11 @@ export default function App() {
 
         {openQuestionnaire && (
           <div className="controlsRow">
-            <button className="ctrlButton" onClick={openAppendModal}>
+            <button className="ctrlButton" onClick={guard(openAppendModal)}>
               <Icon name="plus" size={16} />
               Add question
             </button>
-            <button className="ctrlButton" onClick={openRawEdit}>
+            <button className="ctrlButton" onClick={guard(openRawEdit)}>
               <Icon name="pencil" size={15} />
               Edit text
             </button>
@@ -1063,11 +1162,11 @@ export default function App() {
                       </button>
                       <button
                         className="sidebarDeleteBtn sidebarEditBtn"
-                        onClick={() => {
+                        onClick={guard(() => {
                           setSaveError(null);
                           setEditSubjectName(subject.name);
                           setEditSubject(subject);
-                        }}
+                        })}
                         aria-label={`Rename ${subject.name}`}
                         title="Rename this subject"
                       >
@@ -1075,7 +1174,7 @@ export default function App() {
                       </button>
                       <button
                         className="sidebarDeleteBtn"
-                        onClick={() => setConfirmDeleteSubject(subject)}
+                        onClick={guard(() => setConfirmDeleteSubject(subject))}
                         aria-label={`Delete ${subject.name}`}
                         title="Delete this subject"
                       >
@@ -1147,13 +1246,13 @@ export default function App() {
                       {!combineMode && (
                         <button
                           className="sidebarDeleteBtn"
-                          onClick={() =>
+                          onClick={guard(() =>
                             setConfirmDeleteQuestionnaire({
                               subjectId: currentSubject.id,
                               periodName: currentPeriod.name,
                               questionnaire: q,
                             })
-                          }
+                          )}
                           aria-label={`Delete ${q.name}`}
                           title="Delete this questionnaire"
                         >
@@ -1168,10 +1267,10 @@ export default function App() {
             {!currentSubject && (
               <button
                 className="ctrlButton sidebarAddBtn"
-                onClick={() => {
+                onClick={guard(() => {
                   setSaveError(null);
                   setShowNewSubject(true);
-                }}
+                })}
               >
                 <Icon name="plus" size={17} />
                 New subject
@@ -1181,13 +1280,13 @@ export default function App() {
               <div className="sidebarActions">
                 <button
                   className="ctrlButton sidebarAddBtn"
-                  onClick={() => openCreateModal(currentSubject.id, currentPeriod.name)}
+                  onClick={guard(() => openCreateModal(currentSubject.id, currentPeriod.name))}
                 >
                   <Icon name="plus" size={17} />
                   New questionnaire
                 </button>
                 {currentPeriod.questionnaires.length >= 2 && (
-                  <button className="ctrlButton sidebarSecondaryBtn" onClick={() => setCombineMode(true)}>
+                  <button className="ctrlButton sidebarSecondaryBtn" onClick={guard(() => setCombineMode(true))}>
                     <Icon name="merge" size={17} />
                     Combine
                   </button>
@@ -1226,6 +1325,35 @@ export default function App() {
         </div>
       )}
 
+      {showPin && (
+        <div className="modalOverlay" style={{ zIndex: 90 }} onClick={cancelPin}>
+          <form className="modalCard" onClick={(e) => e.stopPropagation()} onSubmit={handlePinSubmit}>
+            <h2>Enter PIN</h2>
+            <label>
+              PIN
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value)}
+                autoFocus
+              />
+            </label>
+            <p className="bulkHint">Unlocks editing, adding and deleting for 5 minutes.</p>
+            {pinError && <p className="formError">{pinError}</p>}
+            <div className="modalActions">
+              <button type="button" className="ctrlButton" onClick={cancelPin}>
+                Cancel
+              </button>
+              <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={pinInput === ""}>
+                Unlock
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {showActivity && (
         <div className="modalOverlay" onClick={() => !saving && setShowActivity(false)}>
           <div className="modalCard" onClick={(e) => e.stopPropagation()}>
@@ -1261,13 +1389,13 @@ export default function App() {
                       (confirmActId === a.id ? (
                         <button
                           className="ctrlButton ctrlButtonPrimary"
-                          onClick={() => handleRestoreActivity(a)}
+                          onClick={guard(() => handleRestoreActivity(a))}
                           disabled={saving}
                         >
                           {saving ? "Restoring…" : "Confirm"}
                         </button>
                       ) : (
-                        <button className="ctrlButton" onClick={() => setConfirmActId(a.id)} disabled={saving}>
+                        <button className="ctrlButton" onClick={guard(() => setConfirmActId(a.id))} disabled={saving}>
                           Restore
                         </button>
                       ))}
@@ -1311,13 +1439,13 @@ export default function App() {
                     {confirmRestoreId === v.id ? (
                       <button
                         className="ctrlButton ctrlButtonPrimary"
-                        onClick={() => handleRestore(v)}
+                        onClick={guard(() => handleRestore(v))}
                         disabled={saving}
                       >
                         {saving ? "Restoring…" : "Confirm"}
                       </button>
                     ) : (
-                      <button className="ctrlButton" onClick={() => setConfirmRestoreId(v.id)} disabled={saving}>
+                      <button className="ctrlButton" onClick={guard(() => setConfirmRestoreId(v.id))} disabled={saving}>
                         Restore
                       </button>
                     )}
@@ -1617,7 +1745,7 @@ export default function App() {
               </button>
               <button
                 className="ctrlButton ctrlButtonDanger"
-                onClick={() => handleDeleteSubject(confirmDeleteSubject)}
+                onClick={guard(() => handleDeleteSubject(confirmDeleteSubject))}
                 disabled={saving}
               >
                 {saving ? "Deleting…" : "Delete subject"}
@@ -1641,7 +1769,7 @@ export default function App() {
               </button>
               <button
                 className="ctrlButton ctrlButtonDanger"
-                onClick={() => handleDeleteQuestionnaire(confirmDeleteQuestionnaire)}
+                onClick={guard(() => handleDeleteQuestionnaire(confirmDeleteQuestionnaire))}
                 disabled={saving}
               >
                 {saving ? "Deleting…" : "Delete questionnaire"}
@@ -1692,7 +1820,7 @@ export default function App() {
               >
                 <div className="qHeader" style={{ justifyContent: q.title ? "space-between" : "flex-end" }}>
                   {q.title && <div className="qNumber">{q.title}</div>}
-                  <button className="qEditBtn" onClick={() => openQuestionEdit(originalIndex)}>
+                  <button className="qEditBtn" onClick={guard(() => openQuestionEdit(originalIndex))}>
                     <Icon name="pencil" size={13} />
                     Edit
                   </button>
