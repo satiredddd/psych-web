@@ -1044,7 +1044,7 @@ export default function App() {
           <button className="iconToggle" onClick={() => setSidebarOpen(true)} aria-label="Open library" title="Library">
             <Icon name="menu" size={20} />
           </button>
-          <h1>Quiz for my wifies 📖</h1>
+          <h1>Quiz for my cutie katkat</h1>
           <div style={{ display: "flex", gap: 8, flex: "0 0 auto" }}>
             <button
               className="iconToggle"
