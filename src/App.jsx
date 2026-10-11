@@ -16,13 +16,17 @@ import {
 } from "firebase/firestore";
 import "./index.css";
 import { parseQuestions } from "./parser";
+import { getAuth, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { db } from "./firebase";
+
+const auth = getAuth(); // uses the app already initialised in ./firebase
 
 const PERIODS = ["Prelim", "Midterm", "Finals"];
 
-// Edit lock. CHANGE THIS PIN. Note it's checked in the browser, so it keeps
-// casual changes out but isn't real security (see Firestore rules for that).
-const EDIT_PIN = "1234";
+// Edit lock. The PIN is NOT in this file: it's the password of this Firebase Auth
+// account, and your Firestore rules only allow writes from it. Create the account
+// in the Firebase console (Authentication > Users) with the PIN as its password.
+const EDITOR_EMAIL = "quiz-editor@example.com"; // must match the account (and your rules)
 const UNLOCK_MS = 5 * 60 * 1000; // stays unlocked for 5 minutes
 
 // Clean stroke icons (Lucide-style), drawn inline so they inherit text color.
@@ -248,11 +252,18 @@ export default function App() {
   const [showPin, setShowPin] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState(null);
+  const [pinBusy, setPinBusy] = useState(false);
 
   const setUnlock = (until) => {
     unlockRef.current = until;
     setUnlockedUntil(until);
+    if (!until) signOut(auth).catch(() => {}); // locking also ends the Firebase session
   };
+
+  // Always start locked, even if a previous session is still remembered.
+  useEffect(() => {
+    signOut(auth).catch(() => {});
+  }, []);
 
   // Auto-lock when time runs out (and re-check when the tab wakes up).
   useEffect(() => {
@@ -294,18 +305,30 @@ export default function App() {
     return true;
   };
 
-  const handlePinSubmit = (e) => {
+  const handlePinSubmit = async (e) => {
     e.preventDefault();
-    if (pinInput === EDIT_PIN) {
+    if (pinBusy) return;
+    setPinBusy(true);
+    setPinError(null);
+    try {
+      await signInWithEmailAndPassword(auth, EDITOR_EMAIL, pinInput);
       setUnlock(Date.now() + UNLOCK_MS);
       setShowPin(false);
       setPinInput("");
       const action = pendingRef.current;
       pendingRef.current = null;
       if (action) action();
-    } else {
-      setPinError("Wrong PIN. Try again.");
+    } catch (err) {
+      if (err.code === "auth/too-many-requests") {
+        setPinError("Too many tries. Wait a few minutes and try again.");
+      } else if (err.code === "auth/network-request-failed") {
+        setPinError("No connection. Check your internet and try again.");
+      } else {
+        setPinError("Wrong PIN. Try again.");
+      }
       setPinInput("");
+    } finally {
+      setPinBusy(false);
     }
   };
 
@@ -1346,8 +1369,8 @@ export default function App() {
               <button type="button" className="ctrlButton" onClick={cancelPin}>
                 Cancel
               </button>
-              <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={pinInput === ""}>
-                Unlock
+              <button type="submit" className="ctrlButton ctrlButtonPrimary" disabled={pinInput === "" || pinBusy}>
+                {pinBusy ? "Checking…" : "Unlock"}
               </button>
             </div>
           </form>
