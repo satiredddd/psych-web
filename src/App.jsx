@@ -26,7 +26,7 @@ const PERIODS = ["Prelim", "Midterm", "Finals"];
 // Edit lock. The PIN is NOT in this file: it's the password of this Firebase Auth
 // account, and your Firestore rules only allow writes from it. Create the account
 // in the Firebase console (Authentication > Users) with the PIN as its password.
-const EDITOR_EMAIL = "quiz-editor@example.com"; // must match the account (and your rules)
+const EDITOR_EMAIL = "mycutiebebekat@labyou.com"; // must match the account (and your rules)
 const UNLOCK_MS = 5 * 60 * 1000; // stays unlocked for 5 minutes
 
 // Clean stroke icons (Lucide-style), drawn inline so they inherit text color.
